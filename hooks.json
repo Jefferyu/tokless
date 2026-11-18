@@ -1,0 +1,17 @@
+{
+  "read-file-guard": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "read_file|view_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/read-guard-hook.js",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "agy-tokless",
+  "version": "0.1.0",
+  "description": "Token optimizer, AST codebase skeletonizer, and 256K compaction auditor for Google Antigravity.",
+  "license": "MIT",
+  "bin": {
+    "agy-audit": "./tools/agy-audit/cli.js",
+    "repo-skeleton": "./tools/repo-skeleton/cli.js"
+  },
+  "scripts": {
+    "audit": "node ./tools/agy-audit/cli.js",
+    "skeleton": "node ./tools/repo-skeleton/cli.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

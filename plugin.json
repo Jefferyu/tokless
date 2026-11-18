@@ -1,0 +1,12 @@
+{
+  "name": "agy-tokless",
+  "displayName": "AGY Tokless — Antigravity 省流与账单透视套件",
+  "version": "0.1.0",
+  "description": "专为 Google Antigravity 打造的省流护栏与账单审计插件：提供代码语法骨架提取（repo-skeleton）、大文件盲读拦截钩子（PreToolUse Hook）与会话 Token 账单及 256K 自动压缩诊断工具（agy-audit）。",
+  "disabled": false,
+  "suggestedPrompts": [
+    "使用 token-audit 检查我最近一次会话的 Token 消耗黑洞与 256K 压缩风险",
+    "使用 code-skeleton 提取当前项目核心源码目录的函数签名与行号骨架",
+    "对比优化前后两次会话的真实 Token 账单差异"
+  ]
+}
