@@ -1,8 +1,27 @@
 # AGY-Tokless ⚡
 
+> **核心初心：在 100% 保证工程代码质量的前提下，把 Google Antigravity 中无意义的 Token 消耗压到最低。**
+
 **专为 Google Antigravity 打造的省流护栏、AST 语法骨架导航与 256K 自动压缩账单透视套件。**
 
 在不损失任何代码排查与修复质量的前提下，实测单次复杂工程任务可减少 **34.4% 模型往返调用**、砍掉 **53.2% 总 Token 消耗（净省 1,138 万 Cache Read 滚雪球 Token）**，并大幅延缓触发 **256K 自动压缩失忆（Compaction Drift）**。
+
+---
+
+## ⚡ 10 秒傻瓜安装（复制一句提示词直接交给 Antigravity）
+
+不需要你手动敲命令或改配置文件，直接打开你的 **Antigravity 聊天窗口**，复制下面这一句提示词发给它，它会自动帮你完成克隆、挂载与首次账单体检：
+
+### 方式一：联网直接一键安装（最省事，复制即用）
+```text
+请帮我把 https://github.com/daoif/agy-tokless 克隆到本地并运行里面的 node install.js 完成 agy-tokless 省流插件的全局安装与启用，然后用它的 agy-audit 工具帮我看看我最近一次会话的 Token 账单。
+```
+
+### 方式二：如果你下载了离线压缩包（[Releases 下载](https://github.com/daoif/agy-tokless/releases)）
+解压到任意目录后，把下面这句发给 Antigravity（将路径换成你的实际解压路径）：
+```text
+请运行 node "<你解压的目录路径>/install.js" 帮我安装并启用 agy-tokless 省流插件，然后用它的 agy-audit 工具帮我看看我最近一次会话的 Token 账单。
+```
 
 ---
 
@@ -71,34 +90,28 @@ node ./tools/agy-audit/cli.js project <项目目录路径>
 
 ---
 
-## 🚀 一键安装与启用
+## 🙏 灵感来源与开源致谢 (Acknowledgments)
 
-前提：Node.js `>= 18.0.0`（零第三方依赖）。
+本仓库旨在围绕 **Google Antigravity** 的原生插件、钩子（`hooks.json`）与本地会话日志（`transcript_full.jsonl`）体系，提供一套零编译依赖、开箱即用的省流与账单审计组合方案。
 
-### 方式 A：运行跨平台安装脚本（推荐）
+本项目的核心设计思路站在了以下优秀开源项目的肩膀上，特此向原作者们致谢（本仓代码均采用纯 Node.js 标准库针对 Antigravity 独立编写实现）：
 
-```bash
-node install.js
-```
+- **[HoangP8/tokless](https://github.com/HoangP8/tokless)**：启发了本仓库的命名，以及通过指令（Instructions）+ 生命周期钩子（Hooks）组合拦截无效上下文膨胀的核心思路。
+- **[ILoveMyJay/repocontext](https://github.com/ILoveMyJay/repocontext)** 与 **[pdavis68/RepoMapper](https://github.com/pdavis68/RepoMapper)**：启发了“先提取带行号的紧凑代码语法骨架地图，再按行号精准读取局部代码”的探索期降耗策略。
+- **[ooples/token-optimizer-mcp](https://github.com/ooples/token-optimizer-mcp)**：启发了针对工具调用输出体积与会话级 Token 消耗进行量化追踪与优化的思路。
 
-脚本会在 `~/.gemini/config/plugins/agy-tokless` 自动挂载本插件（Windows/macOS/Linux 通用，子目录优先链接并在受限时自动回退复制；若希望脱离源码目录独立拷贝安装，可加 `--copy`）。
+---
 
-> 小白也可直接阅读 [00-一键启用说明.md](./00-一键启用说明.md)，解压后发一句话给 Antigravity 即可自动完成安装。
+## ⭐ 支持与持续更新计划 (Star & Roadmap)
 
-### 方式 B：通过 `plugins.json` 挂载（高级用户）
+如果这个小工具切实帮你在保证代码质量的前提下省下了宝贵的 Antigravity 额度、避开了 256K 自动压缩失忆的坑，**欢迎在右上角点个 ⭐ Star 支持一下！**
 
-在全局 `~/.gemini/config/plugins.json`（或项目 `.agents/plugins.json`）中指向**本仓库的父目录**并用 `include_only` 指定 `agy-tokless`：
+我们正在持续深挖 Antigravity 的底层机制，后续还会围绕「保质量、砍废话」持续更新：
+- [ ] **终端刷屏噪音智能修剪**：针对 `run_command` 产生的冗长构建/测试输出进行头尾保留与错误聚焦裁剪；
+- [ ] **256K 临界前无损交接单（Auto-Handoff）**：在上下文逼近 220K 时自动提炼高保真进度快照，彻底告别后台有损压缩漂移；
+- [ ] **项目级 `AGENTS.md` / `SKILL.md` 自动脱水器**：一键识别并拆分项目内臃肿的常驻提示词。
 
-```json
-{
-  "entries": [
-    {
-      "path": "/path/to/parent-dir-of-agy-tokless",
-      "include_only": ["agy-tokless"]
-    }
-  ]
-}
-```
+欢迎提 Issue 交流你的省流实战数据，或关注作者技术手记公众号 **【织歌AI笔记】** 获取最新更新记录。
 
 ---
 
