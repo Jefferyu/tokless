@@ -24,12 +24,23 @@ function resolveConversationId(idOrPrefix) {
   if (!idOrPrefix || typeof idOrPrefix !== 'string') {
     throw new Error('Conversation ID or prefix is required.');
   }
-  const query = idOrPrefix.trim().toLowerCase();
+  const trimmed = idOrPrefix.trim();
+  const query = trimmed.toLowerCase();
   if (!query) {
     throw new Error('Conversation ID or prefix is empty.');
   }
 
   const brainRoot = path.join(getAntigravityDir(), 'brain');
+  for (const candidate of new Set([trimmed, query])) {
+    const directDir = path.join(brainRoot, candidate);
+    try {
+      if (fs.existsSync(directDir) && fs.statSync(directDir).isDirectory()) {
+        return candidate;
+      }
+    } catch (_) {
+      // Fall back to scanning brainRoot below
+    }
+  }
   if (fs.existsSync(brainRoot)) {
     const entries = fs.readdirSync(brainRoot, { withFileTypes: true });
     const exact = entries.find(e => e.isDirectory() && e.name.toLowerCase() === query);

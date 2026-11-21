@@ -68,6 +68,49 @@ function linkOrCopyDir(srcDir, destDir, forceCopy) {
   return 'copy';
 }
 
+function resolveNodeBinary() {
+  // Prefer stable Homebrew symlink over versioned Cellar path when available
+  if (process.platform === 'darwin') {
+    for (const stable of ['/opt/homebrew/bin/node', '/usr/local/bin/node']) {
+      try {
+        if (fs.existsSync(stable) && fs.realpathSync(stable) === fs.realpathSync(process.execPath)) {
+          return stable;
+        }
+      } catch (_) {}
+    }
+  }
+  const argv0 = process.argv[0];
+  if (argv0 && path.isAbsolute(argv0) && fs.existsSync(argv0)) {
+    return argv0;
+  }
+  return process.execPath;
+}
+
+function installHooksJson(srcFile, destFile) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(srcFile, 'utf8'));
+    const nodeBin = resolveNodeBinary();
+    const quotedNode = `"${nodeBin.replace(/"/g, '\\"')}"`;
+    for (const hookCfg of Object.values(parsed)) {
+      if (!hookCfg || typeof hookCfg !== 'object') continue;
+      for (const groups of Object.values(hookCfg)) {
+        if (!Array.isArray(groups)) continue;
+        for (const group of groups) {
+          const handlers = Array.isArray(group && group.hooks) ? group.hooks : [group];
+          for (const handler of handlers) {
+            if (handler && typeof handler.command === 'string' && /^node\s+/.test(handler.command)) {
+              handler.command = handler.command.replace(/^node(?=\s+)/, quotedNode);
+            }
+          }
+        }
+      }
+    }
+    fs.writeFileSync(destFile, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+  } catch (_) {
+    fs.copyFileSync(srcFile, destFile);
+  }
+}
+
 function install(options = {}) {
   const sourceDir = __dirname;
   const manifestPath = path.join(sourceDir, 'plugin.json');
@@ -91,7 +134,12 @@ function install(options = {}) {
   for (const fileName of ROOT_FILES) {
     const srcFile = path.join(sourceDir, fileName);
     if (fs.existsSync(srcFile)) {
-      fs.copyFileSync(srcFile, path.join(targetDir, fileName));
+      const destFile = path.join(targetDir, fileName);
+      if (fileName === 'hooks.json') {
+        installHooksJson(srcFile, destFile);
+      } else {
+        fs.copyFileSync(srcFile, destFile);
+      }
       copiedFiles.push(fileName);
     }
   }
