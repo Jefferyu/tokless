@@ -1,119 +1,200 @@
-# AGY-Tokless ⚡
+# Tokless
 
-> **核心初心：在 100% 保证工程代码质量的前提下，把 Google Antigravity 中无意义的 Token 消耗压到最低。**
+简体中文 | [English](./README.en.md)
 
-**专为 Google Antigravity 打造的省流护栏、AST 语法骨架导航与 256K 自动压缩账单透视套件。**
+> **核心初心：在不损失一行代码排查与修复质量的前提下，把 AI 编程工具里无意义的盲读膨胀与滚雪球 Token 消耗砍到最低。**
 
-在不损失任何代码排查与修复质量的前提下，实测单次复杂工程任务可减少 **34.4% 模型往返调用**、砍掉 **53.2% 总 Token 消耗（净省 1,138 万 Cache Read 滚雪球 Token）**，并大幅延缓触发 **256K 自动压缩失忆（Compaction Drift）**。
+**面向主流 AI 编程 Agent（原生支持 Google Antigravity、Claude Code、Codex CLI，开放 `targets/` 插件架构扩展更多工具）的纯 Node.js 零依赖省流套件——毫秒级 `[L起-L止]` 语法骨架导航、原生 `PreToolUse` 防盲读硬刹车、剥离 MCP 空载税的净身角色与 0 Token 本地账单/缓存断层体检。**
+
+在真实跨语言生产工程（Tauri + Rust + React）的严格 A/B 盲测中，启用 `tokless` 后单次任务减少 **34.4% 模型往返轮次**、砍掉 **53.2% 总 Token 吞吐（净省 1,138 万 Token）**、滚雪球 Cache Read 净省 **53.8%（少烧 1,123 万 Token）**，7 个真实深层 Bug 检出与修复质量零折损。
 
 ---
 
-## ⚡ 10 秒傻瓜安装（复制一句提示词直接交给 Antigravity）
+## 一行命令极速启用（零界面 · 纯 Node.js `>=18` 零外部依赖）
 
-不需要你手动敲命令或改配置文件，直接打开你的 **Antigravity 聊天窗口**，复制下面这一句提示词发给它，它会自动帮你完成克隆、挂载与首次账单体检：
+### 方式一：终端一键挂载（推荐）
 
-### 方式一：联网直接一键安装（最省事，复制即用）
-```text
-请帮我把 https://github.com/daoif/agy-tokless 克隆到本地并运行里面的 node install.js 完成 agy-tokless 省流插件的全局安装与启用，然后用它的 agy-audit 工具帮我看看我最近一次会话的 Token 账单。
+自动检测并挂载本机已安装的 Antigravity、Claude Code（`~/.claude`）与 Codex CLI（`~/.codex`），从 `npx` 临时目录运行时会自动切换为实体文件拷贝，杜绝缓存清理后软链悬空：
+
+```bash
+npx tokless install
 ```
 
-### 方式二：如果你下载了离线压缩包（[Releases 下载](https://github.com/daoif/agy-tokless/releases)）
-解压到任意目录后，把下面这句发给 Antigravity（将路径换成你的实际解压路径）：
+按需指定单个或全部目标宿主 / 一键干净卸载：
+
+```bash
+npx tokless install --target agy       # 仅挂载 Google Antigravity
+npx tokless install --target claude    # 仅无损合并 Claude Code ~/.claude/settings.json 钩子与技能
+npx tokless install --target codex     # 仅安装 Codex CLI ~/.codex/skills/code-skeleton
+npx tokless install --target all       # 挂载全部已支持宿主
+npx tokless uninstall --target all     # 一键卸载并还原原有宿主配置
+```
+
+### 方式二：复制一句话直接交给你的 AI 编程助手
+
+不想自己切终端，直接把下面这句话发给 Antigravity 或 Claude Code 对话框即可：
+
 ```text
-请运行 node "<你解压的目录路径>/install.js" 帮我安装并启用 agy-tokless 省流插件，然后用它的 agy-audit 工具帮我看看我最近一次会话的 Token 账单。
+请运行 npx tokless install 帮我安装启用 tokless 省流套件（若网络受限可克隆 https://github.com/daoif/tokless 后运行 node install.js），装好后帮我确认钩子与技能已生效。
+```
+
+### 方式三：源码克隆本地安装（适合二次开发或离线环境）
+
+```bash
+git clone https://github.com/daoif/tokless.git
+cd tokless
+node install.js
 ```
 
 ---
 
-## 🔥 为什么你在 Antigravity 里的周额度掉得这么快？
+## 为什么你的周额度掉得这么快？有了 `@Codebase` 或 `repomix` 为什么还是拦不住？
 
-通过对数十个真实 Antigravity 会话底层日志（`transcript_full.jsonl`）的账单解剖，我们发现吃光额度的罪魁祸首只有两个：
+很多重度 AI 编程玩家都有同一个困惑：**“IDE 明明自带了 `@Codebase` 语义索引，我也试过 `repomix`，为什么跑几个复杂需求，5 小时窗口和周额度还是见底了？”**
 
-1. **盲目全量 `read_file` 引发的「Cache Read 滚雪球效应」**：
-   为了找一个函数，AI 习惯性调 `read_file` 把几百上千行的源码全塞进上下文。如果第 3 步塞进 3 万 Token 的无关代码，而整个任务跑了 50 步，这 3 万 Token 就会在后续每一步被重复计费 47 次（光这一步就要白交 **140 万+ Cache Read Token**）！
-2. **跨过 `256K` 阈值触发的「自动压缩失忆（Compaction Drift）」**：
-   实测表明，当单步上下文（`input_tokens + cache_read_tokens`）跨过 **`256,000`（256K，部分 Gemini 4 会话为 512K）** 时，Antigravity 底层 Cortex 引擎会强制插入 `CHECKPOINT: # Resuming from a compaction`，将 25.6 万 Token 的完整对话暴力压缩为仅 2,000~6,000 Token 的摘要，抹除 95% 以上的上下文细节，直接导致后续改代码“失忆漂移”和反复重读文件。
+通过对数十份底层会话账单日志（`transcript_full.jsonl`）的逐帧解剖，吃光额度的元凶非常清晰：
 
----
+### 1. `@Codebase` 是找线索的「搜索引擎」，`tokless` 是防偷懒的「省流刹车系统」
 
-## 📊 真实工程 A/B 实测对比（Tauri + Rust + React 全仓找 Bug & 修复）
-
-我们在同一个生产级桌面工程（Rust 后端 + React/TS 前端）上，基于同一 Commit 切出两个独立 Git Worktree 分支，让同一模型（`Gemini 4 Hydrogen High`）执行完全相同的全仓 Bug 排查、代码修复与构建验证任务：
-
-| 对比维度 | 对照组 (原生常规模式) | 实验组 (启用 `agy-tokless`) | 真实节省 / 提升 |
+| 工具类型 | 代表工具 | 核心职责 | 为什么单靠它省不了 Agent 循环里的额度？ |
 | :--- | :--- | :--- | :--- |
-| **总 Token 吞吐 (`input + cache_read + output`)** | 21,410,381 (2,141 万) | **10,029,592 (1,003 万)** | **🔥 净省 53.2% (-1,138 万 Tokens)** |
-| **累计 Cache Read（滚雪球缓存消耗）** | 20,858,589 (2,086 万) | **9,627,700 (963 万)** | **🔥 净省 53.8% (-1,123 万 Tokens)** |
+| **语义搜索引擎** | IDE 自带 `@Codebase` | 向量/关键词检索，帮 AI 找到“大概在哪个文件” | **只管找路，不管怎么读**。AI 拿到文件名后，下一步依然习惯性调用无行号的 `read_file` / `Read`，顺手把整份一两千行源码全量塞进上下文。 |
+| **全仓打包器** | `repomix` / `gitingest` | 把整个仓库压成单文件喂给网页聊天框 | 适合无本地工具权限的网页问答；若塞进本地 Agent 会话，相当于第 1 步直接背上几万 Token 包袱。 |
+| **省流导航与硬刹车** | **`tokless`** | **80ms 零索引出 `[L起-L止]` 骨架 + `PreToolUse` 硬拦盲读** | 当 AI 偷懒盲读 >200 行代码文件（或传 `1~文件末尾` 假切片）时，底层钩子当场拦截并直接甩回该文件的函数/类 `[L起-L止]` 行号骨架，逼它按行号精准切片读取。 |
+
+`tokless` 与 `@Codebase` 完全不冲突，而是天然互补：`@Codebase` 负责回答“去哪几个文件找”，`tokless` 负责在读取那一刻踩住刹车，只让真正要改的那几十行代码进入上下文。
+
+### 2. 「Cache Read 滚雪球效应」与上下文自动压缩水位
+
+在多步 Agent 循环中，真正烧光额度的往往不是单次 `Input`，而是每一步反复重读历史上下文的 **`Cache Read`**：
+
+$$\text{累计 Cache Read} \approx \text{平均上下文水位} \times \text{模型调用轮数}$$
+
+- **早一步塞进废话，步步交复利税**：如果第 3 步盲读塞进 3 万 Token 无关代码，整个任务跑了 50 轮，这 3 万 Token 就会在后续每一步被重复计费 47 次，单这一步就白烧 **140 万+ Cache Read Token**。
+- **远离隐式压缩失忆线**：在 Antigravity 等宿主中，三代模型常见在约 **256K** 上下文水位触发底层强制摘要压缩（`CHECKPOINT: # Resuming from a compaction`，将数十万上下文压成几千字摘要导致细节丢失与反复重读）；四代模型实测跑上 440K 未触发压缩（社区普遍推测阈值约 **512K**）。但无论压缩上限在哪，**压低每步水位 + 减少探索轮数**都是同时保住代码记忆精度与周额度的核心解法。
+
+---
+
+## 真实工程 A/B 实测账单（Tauri + Rust + React 全仓找 Bug 与修复）
+
+在同一个生产级桌面工程（Rust 后端 + TypeScript/React 前端）上，基于同一 Git Commit (`3908815`) 切出两个独立 Worktree，由同一模型（`Gemini 4 Hydrogen High`）执行完全相同的全仓深层 Bug 排查、修复与编译验证任务：
+
+| 对比维度 | 对照组 (原生常规模式) | 实验组 (启用 `tokless`) | 真实节省 / 提升 |
+| :--- | :--- | :--- | :--- |
+| **总 Token 吞吐 (`input + cache_read + output`)** | 21,410,381 (2,141 万) | **10,029,592 (1,003 万)** | **净省 53.2% (-1,138 万 Tokens)** |
+| **累计 Cache Read（滚雪球缓存消耗）** | 20,858,589 (2,086 万) | **9,627,700 (963 万)** | **净省 53.8% (-1,123 万 Tokens)** |
 | **累计 Input Tokens（新增输入）** | 494,886 | **352,020** | **省 28.9%** |
-| **模型调用次数（Planner Invocations）** | 64 次 | **42 次** | **少调 34.4%** |
+| **模型调用轮数（Planner Invocations）** | 64 次 | **42 次** | **少跑 34.4% 轮次** |
 | **总执行步数（Steps）** | 220 步 | **150 步** | **少走 31.8% 弯路** |
 | **`read_file` 调用次数（全量盲读次数）** | 79 次（含 3 次全量盲读） | **51 次（0 次盲读）** | **文件读取减少 35.4%** |
-| **峰值上下文水位（Peak Context）** | 439,830 Tokens | **323,344 Tokens** | **峰值降低 26.5%（远离压缩线）** |
-| **定位首个 Bug 动手修改耗时** | 227 秒（第 115 步） | **196 秒（第 81 步）** | **提速 31 秒 / 少花 34 步** |
+| **峰值上下文水位（Peak Context）** | 439,830 Tokens | **323,344 Tokens** | **峰值降低 26.5%** |
+| **定位首个 Bug 开始改代码耗时** | 227 秒（第 115 步） | **196 秒（第 81 步）** | **提速 31 秒 / 少花 34 步** |
 | **检出并修复的真实硬核 Bug 数** | 7 个（全部编译通过） | **7 个（全部编译通过）** | **0 质量损耗（并发细节更深）** |
 
-👉 完整实测报告见：[benchmarks/real-world-bugfix-case.md](./benchmarks/real-world-bugfix-case.md) 与静态骨架基准测试 [benchmarks/static-skeleton-benchmark.md](./benchmarks/static-skeleton-benchmark.md)。
+> 注：本轮实测基于四代模型，对照组峰值达 439,830 Tokens 未触发自动压缩（若换作 256K 阈值的三代模型早已触发强制压缩失忆）。完整逐项对比见 [benchmarks/real-world-bugfix-case.md](./benchmarks/real-world-bugfix-case.md) 与静态骨架基准测试 [benchmarks/static-skeleton-benchmark.md](./benchmarks/static-skeleton-benchmark.md)。
 
 ---
 
-## 🛠️ 三大核心组件（纯 Node.js 标准库 · 零原生编译依赖）
+## 三大核心组件与各工具支持一览
 
-### 1. `repo-skeleton` — 毫秒级代码语法骨架提取器
-不读函数体实现，只提取 `.js/.ts/.tsx/.py/.go/.rs/.md` 等文件的类名、函数签名、结构体与 **`[L起-L止]` 精确行号范围**，单文件省流 **85%~97%**。
+| 宿主工具 | `tokless skeleton` 语法骨架 | `PreToolUse` 防盲读硬护栏 | 净身子角色 (`inheritMcp: false`) | `tokless audit` 账单与底座税体检 |
+| :--- | :---: | :---: | :---: | :---: |
+| **Google Antigravity** | 原生 Skill + CLI | 原生 `hooks.json` (`read_file` / `view_file`) | `tokless-coder` / `tokless-reviewer` | 原生解析 `transcript_full.jsonl` + MCP 税 |
+| **Claude Code** | `~/.claude/skills` + CLI | 无损合并 `~/.claude/settings.json` (`Read`) | — | — |
+| **Codex CLI** | `~/.codex/skills` + CLI | — | — | — |
+
+### 1. `tokless skeleton`（兼容 `repo-skeleton`）— 毫秒级代码语法骨架导航
+
+无需预建索引数据库，纯 Node.js 标准库毫秒级提取 `.js/.ts/.tsx/.py/.go/.rs/.java/.c/.cpp/.md` 等文件的类名、函数签名、接口与精确 **`[L起-L止]` 行号范围**，探索期单文件省流 **85%~97%**：
 
 ```bash
-# 扫描整个源码目录（自动排除 node_modules/.git/dist/target），一步生成全局行号地图
-node ./tools/repo-skeleton/cli.js ./src --depth 3
+# 扫描整个源码目录（自动排除 node_modules/.git/dist/target 等），一步生成全局行号地图
+npx tokless skeleton ./src --depth 3
 
-# 提取单个大文件的函数签名与 [L起-L止] 行号
-node ./tools/repo-skeleton/cli.js ./src/App.tsx
+# 提取单个大文件的函数签名与 [L起-L止] 行号（支持 --json 输出结构化数据）
+npx tokless skeleton ./src/App.tsx
 ```
 
-### 2. `agy-audit` — 0 Token 本地账单与 256K 压缩透视仪
-直接解析本地 `.gemini/antigravity/brain/<id>/.system_generated/logs/transcript_full.jsonl`：
+### 2. `PreToolUse` 防盲读硬护栏与净身角色（`scripts/read-guard-hook.js` + `agents/`）
+
+- **精准防盲读，绝不设死板跨度锁死**：当 AI 不传起止行号盲读超过 200 行（可通过环境变量 `TOKLESS_READ_MAX_LINES` 调整）的代码文件，或传入 `1~文件末尾` 假切片糊弄时，钩子自动拦截并当场返回该文件的 `[L起-L止]` 语法骨架；一旦拿到明确行号，无论目标函数是 50 行还是 500 行均一次完整放行，避免拆成多轮碎片读取倒贴 Cache Read。
+- **剥离 MCP 空载底座税（Antigravity `agents/`）**：内置 [`tokless-coder`](./agents/tokless-coder.md) 与只读 [`tokless-reviewer`](./agents/tokless-reviewer.md)，默认声明 `inheritMcp: false` 卸除用不上的外部 MCP Schema，消除每一步固定背负的数千至数万空载底座税。
+
+### 3. `tokless audit`（兼容 `agy-audit`）— 0 Token 账单、缓存断层与底座税透视仪
+
+直接离线解析本地 Antigravity 会话日志与项目规则配置，不花 1 个模型 Token：
 
 ```bash
-# 1. 解剖单个会话（支持短 ID 前缀）：查看 Top 5 烧钱步骤、峰值水位与 256K CHECKPOINT 压缩次数
-node ./tools/agy-audit/cli.js session <会话ID前缀>
+# 1. 解剖单个会话（支持短 ID 前缀）：查 Top 5 烧钱步骤、Prefix Cache 断层与压缩节点
+npx tokless audit session <会话ID前缀>
 
-# 2. 优化前后两个会话的量化账单对比表
-node ./tools/agy-audit/cli.js compare <优化前ID> <优化后ID>
+# 2. 优化前后两个会话的 A/B 量化账单对比
+npx tokless audit compare <优化前ID> <优化后ID>
 
-# 3. 诊断单个项目的 AGENTS.md 与 .agents/skills 肥胖度
-node ./tools/agy-audit/cli.js project <项目目录路径>
+# 3. 诊断项目的 AGENTS.md / SKILL.md 肥胖度与全局/工作区 MCP 空载税
+npx tokless audit project <项目目录路径>
 ```
 
-### 3. `PreToolUse` 防盲读护栏插件（`plugin.json` + `hooks.json`）
-本仓库根目录本身就是一个标准的 **Antigravity 原生插件**：
-- **硬钩子拦截（`scripts/read-guard-hook.js`）**：当 AI 试图不传 `StartLine`/`EndLine` 直接全量读取超过 200 行的代码文件时，钩子自动拦截并当场返回该文件的 `[L起-L止]` 语法骨架，引导 AI 按行号精准读取。
-- **配套省流规则与技能**：内置 [`rules/AGENTS.md`](./rules/AGENTS.md)、[`skills/code-skeleton`](./skills/code-skeleton/SKILL.md) 与 [`skills/token-audit`](./skills/token-audit/SKILL.md)。
+---
+
+## Node.js 编程接口（Programmatic API）
+
+`tokless` 同时导出零依赖标准 CommonJS 接口（支持 `tokless`、`tokless/skeleton`、`tokless/read-guard`、`tokless/audit` 子路径按需引入），方便其他 Agent 编排器或评测脚本在进程内直接调用，零子进程开销：
+
+```js
+const {
+  generateSkeleton,        // 自动识别文件或目录生成 [L起-L止] 骨架
+  evaluateReadGuard,       // 纯函数评估 Antigravity / Claude Code 读取请求是否盲读
+  analyzeSession,          // 解析单次会话账单、缓存断层与峰值水位
+  auditProject,            // 审计项目常驻规则体积与 MCP Schema 底座税
+} = require('tokless');
+
+// 1. 提取目录或单文件骨架
+const skel = generateSkeleton('./src', { maxDepth: 2 });
+console.log(skel.formatted);
+
+// 2. 进程内调用防盲读判定（支持 Antigravity 与 Claude Code 载荷格式）
+const verdict = evaluateReadGuard({
+  tool_name: 'Read',
+  tool_input: { file_path: './src/large-module.ts' },
+});
+// verdict => { decision: 'deny' | 'allow', reason?: string, host: 'claude' | 'antigravity' }
+```
 
 ---
 
-## 🙏 灵感来源与开源致谢 (Acknowledgments)
+## 社区共建：欢迎扩展更多 AI 编程工具（Contributing）
 
-本仓库旨在围绕 **Google Antigravity** 的原生插件、钩子（`hooks.json`）与本地会话日志（`transcript_full.jsonl`）体系，提供一套零编译依赖、开箱即用的省流与账单审计组合方案。
+`tokless` 将各宿主的安装与卸载逻辑完全解耦在 [`targets/`](./targets/) 目录下，每个宿主只需一个独立的百行级适配器文件：
 
-本项目的核心设计思路站在了以下优秀开源项目的肩膀上，特此向原作者们致谢（本仓代码均采用纯 Node.js 标准库针对 Antigravity 独立编写实现）：
+- [`targets/antigravity.js`](./targets/antigravity.js) — Google Antigravity 插件、钩子与净身角色挂载
+- [`targets/claude-code.js`](./targets/claude-code.js) — Claude Code `~/.claude/settings.json` 无损合并与技能挂载
+- [`targets/codex.js`](./targets/codex.js) — OpenAI Codex CLI 技能挂载
 
-- **[HoangP8/tokless](https://github.com/HoangP8/tokless)**：启发了本仓库的命名，以及通过指令（Instructions）+ 生命周期钩子（Hooks）组合拦截无效上下文膨胀的核心思路。
-- **[ILoveMyJay/repocontext](https://github.com/ILoveMyJay/repocontext)** 与 **[pdavis68/RepoMapper](https://github.com/pdavis68/RepoMapper)**：启发了“先提取带行号的紧凑代码语法骨架地图，再按行号精准读取局部代码”的探索期降耗策略。
-- **[ooples/token-optimizer-mcp](https://github.com/ooples/token-optimizer-mcp)**：启发了针对工具调用输出体积与会话级 Token 消耗进行量化追踪与优化的思路。
+非常欢迎社区开发者提交 Pull Request，仿照现有模块在 [`targets/index.js`](./targets/index.js) 中注册更多工具适配（如 **Cursor、Windsurf、Cline、Roo Code、OpenCode、GitHub Copilot** 等），或为 `tools/repo-skeleton` 补充更多语言的语法签名识别。
 
----
+提交 PR 前请在本地运行全套自检（包含跨平台路径测试与 100% 零私人路径泄漏门禁）：
 
-## ⭐ 支持与持续更新计划 (Star & Roadmap)
-
-如果这个小工具切实帮你在保证代码质量的前提下省下了宝贵的 Antigravity 额度、避开了 256K 自动压缩失忆的坑，**欢迎在右上角点个 ⭐ Star 支持一下！**
-
-我们正在持续深挖 Antigravity 的底层机制，后续还会围绕「保质量、砍废话」持续更新：
-- [ ] **终端刷屏噪音智能修剪**：针对 `run_command` 产生的冗长构建/测试输出进行头尾保留与错误聚焦裁剪；
-- [ ] **256K 临界前无损交接单（Auto-Handoff）**：在上下文逼近 220K 时自动提炼高保真进度快照，彻底告别后台有损压缩漂移；
-- [ ] **项目级 `AGENTS.md` / `SKILL.md` 自动脱水器**：一键识别并拆分项目内臃肿的常驻提示词。
-
-欢迎提 Issue 交流你的省流实战数据，或关注作者技术手记公众号 **【织歌AI笔记】** 获取最新更新记录。
+```bash
+npm test
+```
 
 ---
 
-## 📄 License
+## 开源致谢（Acknowledgments）
+
+`tokless` 全部代码基于 Node.js 标准库从零独立实现，核心设计思路受益于以下优秀开源探索与社区贡献者，特此致谢：
+
+- **社区贡献者**：感谢 [@PXY000](https://github.com/PXY000) 在跨平台 PowerShell 技能文档、钩子 Node 绝对路径解析、路径穿越防护与沙箱安全审计查找上的扎实修复与单测贡献。
+- **灵感致敬**：
+  - [HoangP8/tokless](https://github.com/HoangP8/tokless)：启发了项目命名及“指令规范 + 生命周期钩子”组合拦截上下文膨胀的思路；
+  - [ILoveMyJay/repocontext](https://github.com/ILoveMyJay/repocontext) 与 [pdavis68/RepoMapper](https://github.com/pdavis68/RepoMapper)：启发了“先拿带行号的紧凑语法骨架地图，再按行号精准切片读取”的探索期降耗策略；
+  - [ooples/token-optimizer-mcp](https://github.com/ooples/token-optimizer-mcp)：启发了针对工具返回体积与会话级 Token 账单做量化透视的思路。
+
+如果 `tokless` 切实帮你省下了宝贵的周额度，欢迎在右上角点一颗 **Star** 支持，或关注作者技术手记公众号 **【织歌AI笔记】** 交流实战经验。
+
+---
+
+## License
+
 [MIT](./LICENSE)
