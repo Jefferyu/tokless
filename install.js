@@ -6,8 +6,8 @@ const os = require('os');
 const path = require('path');
 
 const PLUGIN_NAME = 'agy-tokless';
-const ROOT_FILES = ['plugin.json', 'hooks.json', 'package.json', 'README.md', 'LICENSE'];
-const LINK_DIRS = ['rules', 'skills', 'scripts', 'tools'];
+const ROOT_FILES = ['plugin.json', 'hooks.json', 'package.json', 'index.js', 'README.md', 'LICENSE'];
+const LINK_DIRS = ['rules', 'skills', 'agents', 'scripts', 'tools', 'lib'];
 
 function removePathSafe(targetPath) {
   let stat;
@@ -170,7 +170,8 @@ function install(options = {}) {
   console.log('📌 下一步验证：');
   console.log('   1. 重启或打开 Antigravity（或运行 `agy plugin list`）即可看到 agy-tokless 已处于启用状态。');
   console.log('   2. 包含组件：PreToolUse 防盲读护栏（read-file-guard）、省流规则（AGENTS.md）、');
-  console.log('      代码骨架技能（code-skeleton）与账单审计技能（token-audit）。');
+  console.log('      净身角色模板（agents: tokless-coder / tokless-reviewer）、');
+  console.log('      代码骨架技能（code-skeleton）与账单/缓存断层审计技能（token-audit）。');
   console.log('   3. 如需卸载，运行：node install.js --uninstall');
   console.log('');
 }

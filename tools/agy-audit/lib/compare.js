@@ -1,9 +1,11 @@
+'use strict';
+
 const { analyzeSession } = require('./analyzer');
 
 function calcDelta(beforeVal, afterVal) {
   const b = beforeVal || 0;
   const a = afterVal || 0;
-  const delta = a - b;
+  const delta = Number((a - b).toFixed(1));
   let savedPct = null;
   if (b > 0) {
     savedPct = Number((((b - a) / b) * 100).toFixed(1));
@@ -45,6 +47,8 @@ function compareSessions(idBefore, idAfter) {
     totalCacheReadTokens: calcDelta(before.stats.totalCacheReadTokens, after.stats.totalCacheReadTokens),
     totalOutputTokens: calcDelta(before.stats.totalOutputTokens, after.stats.totalOutputTokens),
     totalThroughputTokens: calcDelta(before.stats.totalThroughputTokens, after.stats.totalThroughputTokens),
+    cacheHitRatePct: calcDelta(before.stats.cacheHitRatePct, after.stats.cacheHitRatePct),
+    cacheCliffCount: calcDelta(before.stats.cacheCliffCount, after.stats.cacheCliffCount),
     peakContextTokens: calcDelta(before.stats.peakContextTokens, after.stats.peakContextTokens),
     peakContextPct256k: calcDelta(before.stats.peakContextPct256k, after.stats.peakContextPct256k),
     compactionCount: calcDelta(before.stats.compactionCount, after.stats.compactionCount)

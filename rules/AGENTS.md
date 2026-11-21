@@ -1,14 +1,17 @@
-# Antigravity 省流读取与防 256K 压缩漂移规范 (agy-tokless)
+# AI 编程省流读取、净身角色与缓存保护规范 (tokless)
 
-## 1. 先看代码骨架，再按行号精准读取
-- **严禁盲目全量读取大代码文件**：在未确定目标函数、类或逻辑块所在行号前，严禁不带 `StartLine` 和 `EndLine` 直接调用 `read_file` 读取超过 200 行的代码文件。
+## 1. 先看代码骨架，再按行号精准读取 (`repo-skeleton`)
+- **严禁盲目全量读取大代码文件**：在未确定目标函数、类或逻辑块所在行号前，严禁不带起止行号（`StartLine`/`EndLine` 或 `offset`/`limit`）直接读取超过 200 行的源码文件，也严禁传入 `1~全文末尾` 的假切片糊弄全读。
 - **两步精准定位法**：
-  1. 探索陌生项目或定位 Bug 时，第一步优先调用 `repo-skeleton` 提取目标目录或文件的语法骨架（仅含类名、函数签名与 `[L起-L止]` 精确行号范围，比全文读取节省 85%~97% Token）；
-  2. 根据骨架中的 `[L起-L止]` 行号，调用 `read_file(Path, StartLine, EndLine)` 只读取需要查看或修改的几十行代码。
+  1. 探索陌生目录或大文件时，先用 `repo-skeleton` 提取语法签名与 `[L起-L止]` 行号（0 模型 Token，比盲读全文省 85%~97% 探索开销）：
+     - macOS / Linux: `node "$HOME/.gemini/config/plugins/agy-tokless/tools/repo-skeleton/cli.js" <目录或文件路径> --depth 2`
+     - Windows (PowerShell): `node "$env:USERPROFILE\.gemini\config\plugins\agy-tokless\tools\repo-skeleton\cli.js" <目录或文件路径> --depth 2`
+  2. 根据骨架中的 `[L起-L止]` 行号，调用 `read_file(Path, StartLine, EndLine)`（或 `Read(file_path, offset, limit)`）按需完整读取目标函数或逻辑块。
 
-## 2. 控制终端输出噪音
-- 调用 `run_command` 执行日志查询、目录遍历或文本搜索时，必须主动限制输出规模（如限制目录深度、只取前 N 行），严禁将数千行构建日志或依赖目录树直接倾倒进对话上下文。
+## 2. 轻量角色净身（卸除无关 MCP 与工具底座税）
+- 纯代码编写或只读代码审查会话优先启用 `inheritMcp: false` 及最小 `tools` 清单（如内置净身角色 `tokless-coder`、`tokless-reviewer`），剥离用不上的浏览器/外部 MCP Schema 每步固定底座税。
 
-## 3. 防 256K 自动压缩失忆（Anti-Compaction Drift）
-- Antigravity 在单会话上下文累计达到约 **256K（256,000 Tokens）** 时会自动触发后台历史压缩（`CHECKPOINT: Resuming from a compaction`），将早期对话抹除并浓缩为几千字的摘要，极易引发后续施工漂移。
-- 面对多步骤复杂任务时，应将核心目标（Goal）、分步计划（Plan）与关键架构约束实时写入项目磁盘文件（如 `BOARD.md`），或将重度代码排查拆分子代理独立执行，确保主会话远离 256K 压缩红线。
+## 3. 本地账单透视、Prefix Cache 保护与控水位减轮次 (`agy-audit`)
+- **0 Token 账单与底座税体检**（支持 `session <ID>` 查缓存断层与 Top 5 膨胀步、`compare <前ID> <后ID>`、`project <项目目录>` 查规则肥胖度与 MCP 空载税）：
+  `node "$HOME/.gemini/config/plugins/agy-tokless/tools/agy-audit/cli.js" <session|compare|project> <参数>`
+- **严控终端输出与保护 Prefix Cache**：`run_command` 必须主动限制长日志输出规模；对话中途保持顶部规则稳定只追加，控制上下文水位与对话轮次以降低累计 `Cache Read` 滚雪球并避免触发历史自动压缩（三代模型常见约 256K，四代模型推测约 512K）。

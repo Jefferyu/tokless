@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+'use strict';
 
 const { analyzeSession } = require('./lib/analyzer');
 const { compareSessions } = require('./lib/compare');
@@ -34,14 +35,14 @@ function printHelp() {
 Antigravity 本地账单体检与前后对比工具 (agy-audit CLI · 0 Token 运行)
 
 使用说明:
-  node cli.js session <id-or-prefix> [--json]
-    解剖单个反重力会话日志，统计轮次、步数、实测 Token、估算注入 Token，并揪出 Top 5 烧钱步骤。
+  node cli.js session <id-or-prefix-or-path> [--json]
+    解剖单个 Antigravity 会话日志（自动搜索 ~/.gemini/antigravity/brain 与 ~/.gemini/antigravity-cli/brain，或直接传入 .jsonl 文件 / brain 目录路径），统计总耗时与最慢步骤 Top 3、read_file 盲读与按行读取统计、实际挂载外部 MCP 服务/前缀列表、每轮上下文净增波动与 Prefix Cache 命中率/断层告警、上下文水位与自动压缩诊断及 Top 5 烧钱步骤。
 
-  node cli.js compare <id_before> <id_after> [--json]
-    对比两个会话的量化指标与节省比例 (%)，输出 Markdown 对比表。
+  node cli.js compare <id_or_path_before> <id_or_path_after> [--json]
+    对比两个会话的量化指标、缓存命中率与节省比例 (%)，输出 Markdown 对比表。
 
   node cli.js project <dirPath> [--json]
-    检查单个热点项目的 AGENTS.md / GEMINI.md / .agents/rules/*.md / .agents/skills/*/SKILL.md 肥胖度并给出瘦身建议。
+    检查目标项目的常驻规则与 Skill 肥胖度，并扫描全局 ~/.gemini/config/mcp_config.json 与项目 .agents/agents/ 估算每步 MCP 与工具底座空载税及 inheritMcp: false 净身收益。
 
 示例:
   node tools/agy-audit/cli.js session 3e4efc2c
@@ -92,7 +93,8 @@ function main() {
         console.error('❌ 请提供单个目标项目路径，例如: node cli.js project ./my-project');
         process.exit(1);
       }
-      const report = auditProject(dirPath);
+      const options = flags.home ? { homeDir: flags.home } : {};
+      const report = auditProject(dirPath, options);
       if (flags.json) {
         console.log(JSON.stringify(report, null, 2));
       } else {

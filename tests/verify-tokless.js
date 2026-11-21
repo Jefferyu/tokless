@@ -1,0 +1,486 @@
+#!/usr/bin/env node
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync, spawnSync } = require('child_process');
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+
+function walkFiles(dir, out = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'dist') continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkFiles(full, out);
+    } else if (entry.isFile()) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+function testZeroPersonalPathLeak() {
+  const username = os.userInfo().username;
+  const forbiddenPatterns = [
+    new RegExp(username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+    /[A-Za-z]:\\Users\\/i,
+    /\/Users\/[A-Za-z0-9._-]+/,
+    /[A-Za-z]:\\code\\/i,
+  ];
+
+  const localDenylistPath = path.join(REPO_ROOT, '.tokless-private-denylist');
+  if (fs.existsSync(localDenylistPath)) {
+    const terms = fs
+      .readFileSync(localDenylistPath, 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+    for (const term of terms) {
+      forbiddenPatterns.push(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+    }
+  }
+
+  const files = walkFiles(REPO_ROOT);
+  const violations = [];
+  for (const file of files) {
+    if (file.endsWith('.zip') || file.endsWith('.png') || file.endsWith('.jpg')) continue;
+    const rel = path.relative(REPO_ROOT, file);
+    const normalizedRel = rel.replace(/\\/g, '/');
+    if (normalizedRel === 'tests/verify-tokless.js' || normalizedRel === '.tokless-private-denylist') continue;
+    const content = fs.readFileSync(file, 'utf8');
+    for (const re of forbiddenPatterns) {
+      const m = content.match(re);
+      if (m) {
+        violations.push(`${rel}: matched "${m[0]}"`);
+      }
+    }
+  }
+  assert.strictEqual(
+    violations.length,
+    0,
+    `Personal username or local machine path leaked in repository:\n${violations.join('\n')}`
+  );
+  console.log('  [PASS] 1. Zero personal username or local machine path leaks across repository');
+}
+
+function testAgyAuditCacheCliffsAndMcpTax(tmpDir) {
+  const auditCli = path.join(REPO_ROOT, 'tools', 'agy-audit', 'cli.js');
+
+  const transcriptPath = path.join(tmpDir, 'transcript_full.jsonl');
+  const syntheticSteps = [
+    { step_index: 1, type: 'USER_INPUT', created_at: '2026-05-01T10:00:00Z', content: 'start' },
+    { step_index: 2, type: 'PLANNER_RESPONSE', created_at: '2026-05-01T10:00:05Z', input_tokens: 18000, cache_read_tokens: 0, output_tokens: 400 },
+    { step_index: 3, type: 'PLANNER_RESPONSE', created_at: '2026-05-01T10:00:20Z', input_tokens: 4000, cache_read_tokens: 18000, output_tokens: 300 },
+    { step_index: 4, type: 'USER_INPUT', created_at: '2026-05-01T11:10:20Z', content: 'resume after lunch' },
+    { step_index: 5, type: 'PLANNER_RESPONSE', created_at: '2026-05-01T11:10:25Z', input_tokens: 23500, cache_read_tokens: 0, output_tokens: 500 },
+    { step_index: 6, type: 'PLANNER_RESPONSE', created_at: '2026-05-01T11:10:40Z', input_tokens: 2500, cache_read_tokens: 23500, output_tokens: 200 },
+    { step_index: 7, type: 'USER_SETTINGS_CHANGE', created_at: '2026-05-01T11:11:00Z', content: 'model switched' },
+    { step_index: 8, type: 'PLANNER_RESPONSE', created_at: '2026-05-01T11:11:05Z', input_tokens: 27000, cache_read_tokens: 0, output_tokens: 350 },
+    { step_index: 9, type: 'CHECKPOINT', created_at: '2026-05-01T11:12:00Z', content: '# Resuming from a compaction\nSummary...' },
+    { step_index: 10, type: 'PLANNER_RESPONSE', created_at: '2026-05-01T11:12:05Z', input_tokens: 16000, cache_read_tokens: 0, output_tokens: 300 },
+    { step_index: 11, type: 'PLANNER_RESPONSE', created_at: '2026-05-01T11:12:15Z', input_tokens: 14000, cache_read_tokens: 16000, output_tokens: 300 },
+    {
+      step_index: 12,
+      type: 'PLANNER_RESPONSE',
+      created_at: '2026-05-01T11:12:25Z',
+      input_tokens: 28000,
+      cache_read_tokens: 4000,
+      output_tokens: 300,
+      tool_calls: [
+        { name: 'read_file', args: { Path: '/tmp/demo/large.js', StartLine: 1, EndLine: 400 } },
+        { name: 'call_mcp_tool', args: { ServerName: 'chrome-devtools', ToolName: 'list_pages', Arguments: {} } }
+      ]
+    },
+    {
+      step_index: 13,
+      type: 'GENERIC',
+      created_at: '2026-05-01T11:12:37Z',
+      content: 'Created At: 2026-05-01T11:12:26Z\nCompleted At: 2026-05-01T11:12:37Z\nShowing lines 1-400 of 600\nconst x = 1;'
+    },
+    {
+      step_index: 14,
+      type: 'GENERIC',
+      created_at: '2026-05-01T11:12:40Z',
+      content: 'Created At: 2026-05-01T11:12:38Z\nCompleted At: 2026-05-01T11:12:40Z\nPages: []'
+    }
+  ];
+  fs.writeFileSync(transcriptPath, syntheticSteps.map(s => JSON.stringify(s)).join('\n') + '\n', 'utf8');
+
+  const sessionJsonRaw = execFileSync(process.execPath, [auditCli, 'session', transcriptPath, '--json'], {
+    encoding: 'utf8'
+  });
+  const sessionReport = JSON.parse(sessionJsonRaw);
+  assert.strictEqual(sessionReport.stats.compactionCount, 1, 'Should detect 1 CHECKPOINT compaction');
+  assert.strictEqual(sessionReport.stats.cacheCliffCount, 3, 'Should detect exact 3 non-compaction Prefix Cache cliffs');
+  assert.strictEqual(sessionReport.cacheCliffs[0].reasonCode, 'idle_ttl_expired');
+  assert.strictEqual(sessionReport.cacheCliffs[1].reasonCode, 'settings_or_model_switch');
+  assert.strictEqual(sessionReport.cacheCliffs[2].reasonCode, 'prefix_mutated_or_evicted');
+  assert.strictEqual(sessionReport.stats.readTotalCount, 1);
+  assert.strictEqual(sessionReport.stats.rangedReadCount, 1);
+  assert.strictEqual(sessionReport.stats.blindReadCount, 0);
+  assert.strictEqual(sessionReport.stats.readWideSpanCount, undefined, 'Ranged reads >300 lines must NOT be flagged as wide-span violations');
+  assert.strictEqual(sessionReport.stats.compactionThresholdGen4EstTokens, 512000);
+  assert.strictEqual(sessionReport.mcpAudit.mountedCount, 1, 'Should detect invoked external MCP server');
+  assert(sessionReport.mcpAudit.prefixes.includes('mcp_chrome-devtools_'));
+  assert(Array.isArray(sessionReport.slowestSteps) && sessionReport.slowestSteps.length === 2);
+  assert(sessionReport.slowestSteps[0].durationSec >= 11);
+  assert(Array.isArray(sessionReport.turnDeltas) && sessionReport.turnDeltas.length === 2);
+
+  const sessionMd = execFileSync(process.execPath, [auditCli, 'session', transcriptPath], { encoding: 'utf8' });
+  assert(sessionMd.includes('Prefix Cache 命中率与断层诊断'));
+  assert(sessionMd.includes('闲置超时导致缓存过期'));
+  assert(sessionMd.includes('440K'));
+  assert(sessionMd.includes('512K'));
+  assert(!sessionMd.includes('大跨度读取'));
+
+  const fakeHome = path.join(tmpDir, 'fake-home');
+  const fakeMcpDir = path.join(fakeHome, '.gemini', 'config');
+  fs.mkdirSync(fakeMcpDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(fakeMcpDir, 'mcp_config.json'),
+    JSON.stringify({
+      mcpServers: {
+        'chrome-devtools': {
+          command: 'npx',
+          args: ['-y', 'chrome-devtools-mcp'],
+          env: { SUPER_SECRET_TOKEN: 'DO_NOT_LEAK_12345' }
+        },
+        'disabled-db': {
+          command: 'sqlite-mcp',
+          disabled: true
+        }
+      }
+    }),
+    'utf8'
+  );
+
+  const sampleProj = path.join(tmpDir, 'sample-proj');
+  fs.mkdirSync(path.join(sampleProj, '.agents', 'agents'), { recursive: true });
+  fs.writeFileSync(
+    path.join(sampleProj, '.agents', 'agents', 'fast-worker.md'),
+    [
+      '---',
+      'name: fast-worker',
+      'description: Lean worker',
+      'mainAgent: true',
+      'inheritMcp: false',
+      'tools: [read_file, edit_file, run_command]',
+      '---',
+      'Work fast.'
+    ].join('\n'),
+    'utf8'
+  );
+
+  const projJsonRaw = execFileSync(
+    process.execPath,
+    [auditCli, 'project', sampleProj, '--home', fakeHome, '--json'],
+    { encoding: 'utf8' }
+  );
+  assert(!projJsonRaw.includes('DO_NOT_LEAK_12345'), 'Must NEVER leak MCP env secret values');
+  const projReport = JSON.parse(projJsonRaw);
+  assert.strictEqual(projReport.mcpAndToolTax.totalMcpCount, 2);
+  assert.strictEqual(projReport.mcpAndToolTax.enabledMcpCount, 1);
+  assert.strictEqual(projReport.mcpAndToolTax.activeMcpEstTokensPerStep, 3000);
+  assert.strictEqual(projReport.mcpAndToolTax.agents.length, 1);
+  assert.strictEqual(projReport.mcpAndToolTax.agents[0].inheritMcp, false);
+  assert.strictEqual(projReport.mcpAndToolTax.agents[0].mcpEstTokens, 0);
+  assert(projReport.mcpAndToolTax.agents[0].savedPerStepTokens > 5000);
+
+  const selfAuditRaw = execFileSync(
+    process.execPath,
+    [auditCli, 'project', REPO_ROOT, '--home', fakeHome, '--json'],
+    { encoding: 'utf8' }
+  );
+  const selfAudit = JSON.parse(selfAuditRaw);
+  assert.strictEqual(selfAudit.summary.lineViolations, 0, 'tokless docs must have 0 line limit violations');
+  assert.strictEqual(selfAudit.summary.densityWarnings, 0, 'tokless docs must have 0 byte density warnings');
+  assert.strictEqual(selfAudit.summary.progressiveDisclosure.count, 2, 'Both code-skeleton and token-audit SKILL.md must exist');
+  assert.strictEqual(selfAudit.mcpAndToolTax.agents.length, 2, 'Exactly 2 official lightweight agent templates (coder + reviewer) must be discovered');
+
+  console.log('  [PASS] 2. agy-audit session Prefix Cache cliffs, Gen3/Gen4 compaction context & MCP/tool base tax');
+}
+
+function testRepoSkeletonAndReadGuardHook(tmpDir) {
+  const skelCli = path.join(REPO_ROOT, 'tools', 'repo-skeleton', 'cli.js');
+  const out = execFileSync(process.execPath, [skelCli, REPO_ROOT, '--depth', '3'], { encoding: 'utf8' });
+  assert(out.includes('read-guard-hook.js'));
+  assert(out.includes('function evaluateReadGuard'));
+
+  const hookScript = path.join(REPO_ROOT, 'scripts', 'read-guard-hook.js');
+  const bigJs = path.join(tmpDir, 'big.js');
+  const bigLines = [];
+  for (let i = 1; i <= 520; i++) {
+    bigLines.push(i === 10 ? 'function alpha() { return 1; }' : `const v${i} = ${i};`);
+  }
+  fs.writeFileSync(bigJs, bigLines.join('\n'), 'utf8');
+
+  // 1) Blind read of >200-line file MUST deny with skeleton
+  const blindRes = spawnSync(
+    process.execPath,
+    [hookScript],
+    {
+      input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: bigJs } } }),
+      encoding: 'utf8'
+    }
+  );
+  const blindJson = JSON.parse(blindRes.stdout.trim());
+  assert.strictEqual(blindJson.decision, 'deny');
+  assert(blindJson.reason.includes('function alpha()'));
+
+  // 2) Ranged read of 450 lines (e.g. L20-L470) MUST 100% allow (300-line hard cap abolished!)
+  const ranged450Res = spawnSync(
+    process.execPath,
+    [hookScript],
+    {
+      input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: bigJs, StartLine: 20, EndLine: 470 } } }),
+      encoding: 'utf8'
+    }
+  );
+  const ranged450Json = JSON.parse(ranged450Res.stdout.trim());
+  assert.strictEqual(ranged450Json.decision, 'allow');
+
+  // 3) Ranged read from L1-L450 on a 520-line file MUST also allow (not covering EOF)
+  const top450Res = spawnSync(
+    process.execPath,
+    [hookScript],
+    {
+      input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: bigJs, StartLine: 1, EndLine: 450 } } }),
+      encoding: 'utf8'
+    }
+  );
+  assert.strictEqual(JSON.parse(top450Res.stdout.trim()).decision, 'allow');
+
+  // 4) Fake full-file slice (startLine <= 2 && requestedEnd >= totalLines - 2) MUST deny
+  const fakeSliceRes = spawnSync(
+    process.execPath,
+    [hookScript],
+    {
+      input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: bigJs, StartLine: 1, EndLine: 520 } } }),
+      encoding: 'utf8'
+    }
+  );
+  const fakeSliceJson = JSON.parse(fakeSliceRes.stdout.trim());
+  assert.strictEqual(fakeSliceJson.decision, 'deny');
+  assert(fakeSliceJson.reason.includes('function alpha()'));
+
+  // 5) Claude Code `Read` PreToolUse hook compatibility (deny blind read + allow ranged offset/limit + deny fake full read)
+  const claudeBlindRes = spawnSync(
+    process.execPath,
+    [hookScript],
+    {
+      input: JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Read',
+        tool_input: { file_path: bigJs }
+      }),
+      encoding: 'utf8'
+    }
+  );
+  const claudeBlindJson = JSON.parse(claudeBlindRes.stdout.trim());
+  assert(claudeBlindJson.hookSpecificOutput, 'Claude Code deny must return hookSpecificOutput');
+  assert.strictEqual(claudeBlindJson.hookSpecificOutput.hookEventName, 'PreToolUse');
+  assert.strictEqual(claudeBlindJson.hookSpecificOutput.permissionDecision, 'deny');
+  assert(claudeBlindJson.hookSpecificOutput.permissionDecisionReason.includes('function alpha()'));
+
+  const claudeAllowRes = spawnSync(
+    process.execPath,
+    [hookScript],
+    {
+      input: JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Read',
+        tool_input: { file_path: bigJs, offset: 15, limit: 450 }
+      }),
+      encoding: 'utf8'
+    }
+  );
+  const claudeAllowJson = JSON.parse(claudeAllowRes.stdout.trim());
+  assert.deepStrictEqual(claudeAllowJson, {});
+
+  const claudeFakeFullRes = spawnSync(
+    process.execPath,
+    [hookScript],
+    {
+      input: JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Read',
+        tool_input: { file_path: bigJs, offset: 1, limit: 520 }
+      }),
+      encoding: 'utf8'
+    }
+  );
+  const claudeFakeFullJson = JSON.parse(claudeFakeFullRes.stdout.trim());
+  assert.strictEqual(claudeFakeFullJson.hookSpecificOutput.permissionDecision, 'deny');
+
+  // 6) TOKLESS_READ_MAX_LINES env priority over AGY_READ_MAX_LINES
+  const envOverrideRes = spawnSync(
+    process.execPath,
+    [hookScript],
+    {
+      env: { ...process.env, TOKLESS_READ_MAX_LINES: '600', AGY_READ_MAX_LINES: '100' },
+      input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: bigJs } } }),
+      encoding: 'utf8'
+    }
+  );
+  assert.strictEqual(JSON.parse(envOverrideRes.stdout.trim()).decision, 'allow');
+
+  console.log('  [PASS] 3. repo-skeleton & PreToolUse read-guard-hook (AGY + Claude Code Read, 450-line allow, fake-slice deny)');
+}
+
+function testProgrammaticPackageExports(tmpDir) {
+  const consumerDir = path.join(tmpDir, 'consumer-app');
+  const nmScopeDir = path.join(consumerDir, 'node_modules');
+  fs.mkdirSync(nmScopeDir, { recursive: true });
+  const pkgLinkPath = path.join(nmScopeDir, 'agy-tokless');
+  fs.symlinkSync(REPO_ROOT, pkgLinkPath, process.platform === 'win32' ? 'junction' : 'dir');
+
+  const consumerScript = path.join(consumerDir, 'check-exports.js');
+  const bigJs = path.join(tmpDir, 'export-guard-big.js');
+  const bigLines = [];
+  for (let i = 1; i <= 500; i++) {
+    bigLines.push(i === 15 ? 'function exportedAlpha(x) { return x + 1; }' : `const item${i} = ${i};`);
+  }
+  fs.writeFileSync(bigJs, bigLines.join('\n'), 'utf8');
+
+  const sessionJsonl = path.join(tmpDir, 'export-session.jsonl');
+  fs.writeFileSync(
+    sessionJsonl,
+    [
+      JSON.stringify({
+        step_index: 1,
+        type: 'USER_INPUT',
+        created_at: '2026-06-01T10:00:00Z',
+        content: 'Check exports'
+      }),
+      JSON.stringify({
+        step_index: 2,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-06-01T10:00:02Z',
+        input_tokens: 1200,
+        output_tokens: 80,
+        cache_read_tokens: 1000
+      })
+    ].join('\n'),
+    'utf8'
+  );
+
+  fs.writeFileSync(
+    consumerScript,
+    `'use strict';
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+
+const rootPkg = require('agy-tokless');
+const skelMod = require('agy-tokless/skeleton');
+const auditMod = require('agy-tokless/audit');
+const guardMod = require('agy-tokless/read-guard');
+const pkgJson = require('agy-tokless/package.json');
+
+assert.strictEqual(pkgJson.name, 'agy-tokless');
+assert(pkgJson.exports['.'] && pkgJson.exports['./skeleton']);
+assert(pkgJson.exports['./audit'] && pkgJson.exports['./read-guard'] && pkgJson.exports['./package.json']);
+assert.deepStrictEqual(Object.keys(pkgJson.exports).sort(), ['.', './audit', './package.json', './read-guard', './skeleton']);
+
+assert.strictEqual(rootPkg.generateFileSkeleton, skelMod.generateFileSkeleton);
+assert.strictEqual(rootPkg.scanDirectorySkeleton, skelMod.scanDirectorySkeleton);
+assert.strictEqual(typeof skelMod.generateSkeleton, 'function');
+assert.strictEqual(typeof skelMod.formatDirectorySkeleton, 'function');
+
+const fileSkel = skelMod.generateFileSkeleton(${JSON.stringify(bigJs)});
+assert.strictEqual(fileSkel.totalLines, 500);
+assert(fileSkel.formatted.includes('function exportedAlpha(x)'));
+
+const unifiedFile = skelMod.generateSkeleton(${JSON.stringify(bigJs)});
+assert.strictEqual(unifiedFile.mode, 'file');
+assert(unifiedFile.text.includes('function exportedAlpha(x)'));
+
+const unifiedDir = skelMod.generateSkeleton(${JSON.stringify(tmpDir)}, { depth: 1 });
+assert.strictEqual(unifiedDir.mode, 'directory');
+assert(unifiedDir.text.includes('export-guard-big.js'));
+
+assert.strictEqual(rootPkg.analyzeSession, auditMod.analyzeSession);
+assert.strictEqual(rootPkg.auditProject, auditMod.auditProject);
+assert.strictEqual(rootPkg.compareSessions, auditMod.compareSessions);
+const sessionRep = auditMod.analyzeSession(${JSON.stringify(sessionJsonl)});
+assert.strictEqual(sessionRep.stats.totalSteps, 2);
+assert.strictEqual(sessionRep.stats.totalInputTokens, 1200);
+const projRep = auditMod.auditProject(${JSON.stringify(tmpDir)}, { homeDir: ${JSON.stringify(tmpDir)} });
+assert(typeof projRep.summary.alwaysOn.estTokens === 'number');
+
+assert.strictEqual(rootPkg.evaluateReadGuard, guardMod.evaluateReadGuard);
+assert.strictEqual(guardMod.checkReadGuard, guardMod.evaluateReadGuard);
+assert.strictEqual(typeof guardMod.buildClaudePreToolUseHookConfig, 'function');
+assert(fs.existsSync(guardMod.READ_GUARD_SCRIPT_PATH));
+assert(fs.existsSync(guardMod.scriptPath));
+assert(fs.existsSync(guardMod.HOOKS_CONFIG_PATH));
+
+const denyVerdict = guardMod.evaluateReadGuard({
+  toolCall: { name: 'read_file', args: { Path: ${JSON.stringify(bigJs)} } }
+});
+assert.strictEqual(denyVerdict.decision, 'deny');
+assert(denyVerdict.reason.includes('function exportedAlpha(x)'));
+
+const allow450Verdict = guardMod.evaluateReadGuard({
+  toolCall: { name: 'read_file', args: { Path: ${JSON.stringify(bigJs)}, StartLine: 10, EndLine: 460 } }
+});
+assert.strictEqual(allow450Verdict.decision, 'allow');
+
+const denyFakeFullVerdict = guardMod.evaluateReadGuard({
+  toolCall: { name: 'read_file', args: { Path: ${JSON.stringify(bigJs)}, StartLine: 2, EndLine: 499 } }
+});
+assert.strictEqual(denyFakeFullVerdict.decision, 'deny');
+
+const claudeCfg = guardMod.buildClaudePreToolUseHookConfig();
+assert(Array.isArray(claudeCfg.PreToolUse) && claudeCfg.PreToolUse[0].matcher === 'Read');
+
+const hookCfg = guardMod.buildPreToolUseHookConfig();
+assert(hookCfg['read-file-guard'] && Array.isArray(hookCfg['read-file-guard'].PreToolUse));
+
+const fakeHome = path.join(${JSON.stringify(tmpDir)}, 'fake-home');
+assert.strictEqual(rootPkg.detectGlobalPlugin({ homeDir: fakeHome }).installed, false);
+const fakePluginDir = path.join(fakeHome, '.gemini', 'config', 'plugins', 'agy-tokless');
+fs.mkdirSync(fakePluginDir, { recursive: true });
+fs.writeFileSync(path.join(fakePluginDir, 'plugin.json'), JSON.stringify({ name: 'agy-tokless', disabled: false }), 'utf8');
+const detected = rootPkg.detectGlobalPlugin({ homeDir: fakeHome });
+assert.strictEqual(detected.installed, true);
+assert.strictEqual(detected.enabled, true);
+
+let blocked = false;
+try {
+  require('agy-tokless/tools/agy-audit/cli.js');
+} catch (err) {
+  blocked = err.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED';
+}
+assert.strictEqual(blocked, true, 'Unexported internal path should throw ERR_PACKAGE_PATH_NOT_EXPORTED');
+`,
+    'utf8'
+  );
+
+  execFileSync(process.execPath, [consumerScript], {
+    cwd: consumerDir,
+    encoding: 'utf8',
+    stdio: 'pipe'
+  });
+
+  console.log('  [PASS] 4. Programmatic package.json exports (., ./skeleton, ./audit, ./read-guard, ./package.json)');
+}
+
+function main() {
+  console.log('Running tokless verification suite...');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokless-test-'));
+  try {
+    testZeroPersonalPathLeak();
+    testAgyAuditCacheCliffsAndMcpTax(tmpDir);
+    testRepoSkeletonAndReadGuardHook(tmpDir);
+    testProgrammaticPackageExports(tmpDir);
+    console.log('\nALL tokless checks passed!');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+main();

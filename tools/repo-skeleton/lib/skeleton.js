@@ -1416,6 +1416,89 @@ function scanDirectorySkeleton(dirPath, options = {}) {
   };
 }
 
+/**
+ * 格式化目录骨架扫描结果为紧凑人类/模型可读文本
+ * @param {object} dirResult - scanDirectorySkeleton 的返回对象
+ * @param {object} [options]
+ * @param {number} [options.elapsedMs]
+ * @returns {string}
+ */
+function formatDirectorySkeleton(dirResult, options = {}) {
+  const lines = [];
+  const elapsedPart =
+    typeof options.elapsedMs === 'number' ? `, 耗时 ${options.elapsedMs}ms` : '';
+
+  lines.push(`目录: ${dirResult.root} (深度 <= ${dirResult.depth})`);
+  lines.push(
+    `统计: 共 ${dirResult.fileCount} 个文件, ${dirResult.totalLines} 行 | 全文估算 ${dirResult.totalRawTokens} tokens → 骨架估算 ${dirResult.totalSkeletonTokens} tokens (节省 ${dirResult.totalSavedPercent}%${elapsedPart})`
+  );
+
+  for (const file of dirResult.files) {
+    lines.push('');
+    lines.push(
+      `## ${file.relPath} (${file.totalLines} 行 | ${file.rawTokens} → ${file.skeletonTokens} tokens, -${file.savedPercent}%)`
+    );
+    if (!file.items || file.items.length === 0) {
+      lines.push('  (无显式函数/类签名)');
+    } else {
+      for (const item of file.items) {
+        const indent = '  '.repeat(item.depth || 0);
+        lines.push(`${indent}[L${item.startLine}-L${item.endLine}] ${item.signature}`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * 自动识别文件或目录并生成语法骨架（统一编程入口）
+ * @param {string} targetPath
+ * @param {object} [options]
+ * @param {number} [options.depth=2]
+ * @param {boolean} [options.includeHeader=false]
+ * @returns {object}
+ */
+function generateSkeleton(targetPath, options = {}) {
+  const resolved = path.resolve(targetPath);
+  const stat = fs.statSync(resolved);
+  const t0 = performance.now();
+
+  if (stat.isFile()) {
+    const result = generateFileSkeleton(resolved, {
+      includeHeader: Boolean(options.includeHeader),
+    });
+    const elapsedMs = Number((performance.now() - t0).toFixed(2));
+    const text = [
+      `文件: ${result.filePath}`,
+      `统计: 总行数 ${result.totalLines} 行 | 全文估算 ${result.rawTokens} tokens → 骨架估算 ${result.skeletonTokens} tokens (节省 ${result.savedPercent}%, 耗时 ${elapsedMs}ms)`,
+      '---',
+      result.formatted,
+    ].join('\n');
+    return {
+      mode: 'file',
+      elapsedMs,
+      ...result,
+      text,
+    };
+  }
+
+  if (stat.isDirectory()) {
+    const result = scanDirectorySkeleton(resolved, options);
+    const elapsedMs = Number((performance.now() - t0).toFixed(2));
+    const formatted = formatDirectorySkeleton(result, { elapsedMs });
+    return {
+      mode: 'directory',
+      elapsedMs,
+      ...result,
+      formatted,
+      text: formatted,
+    };
+  }
+
+  throw new Error(`Unsupported target type: ${resolved}`);
+}
+
 module.exports = {
   IGNORED_DIRS,
   SUPPORTED_EXTS,
@@ -1423,4 +1506,6 @@ module.exports = {
   generateFileSkeleton,
   scanDirectorySkeleton,
   formatSkeletonItems,
+  formatDirectorySkeleton,
+  generateSkeleton,
 };

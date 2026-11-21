@@ -3,7 +3,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { generateFileSkeleton, scanDirectorySkeleton } = require('./lib/skeleton');
+const {
+  generateFileSkeleton,
+  scanDirectorySkeleton,
+  formatDirectorySkeleton,
+} = require('./lib/skeleton');
 
 function printUsage() {
   console.log(`repo-skeleton - 极速提取代码文件或目录的紧凑语法骨架与精确行号范围
@@ -94,25 +98,7 @@ function main() {
       return;
     }
 
-    console.log(`目录: ${result.root} (深度 <= ${result.depth})`);
-    console.log(
-      `统计: 共 ${result.fileCount} 个文件, ${result.totalLines} 行 | 全文估算 ${result.totalRawTokens} tokens → 骨架估算 ${result.totalSkeletonTokens} tokens (节省 ${result.totalSavedPercent}%, 耗时 ${elapsedMs}ms)`
-    );
-
-    for (const file of result.files) {
-      console.log('');
-      console.log(
-        `## ${file.relPath} (${file.totalLines} 行 | ${file.rawTokens} → ${file.skeletonTokens} tokens, -${file.savedPercent}%)`
-      );
-      if (file.items.length === 0) {
-        console.log('  (无显式函数/类签名)');
-      } else {
-        for (const item of file.items) {
-          const indent = '  '.repeat(item.depth || 0);
-          console.log(`${indent}[L${item.startLine}-L${item.endLine}] ${item.signature}`);
-        }
-      }
-    }
+    console.log(formatDirectorySkeleton(result, { elapsedMs }));
     return;
   }
 
