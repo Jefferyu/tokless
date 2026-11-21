@@ -16,8 +16,22 @@ function getSummariesDbPath() {
   return path.join(agyDir, 'conversation_summaries.db');
 }
 
+function isSafeSingleDirName(name) {
+  if (!name || name === '.' || name === '..') return false;
+  if (name.includes('/') || name.includes('\\') || name.includes('\0')) return false;
+  return path.basename(name) === name;
+}
+
 function getConversationBrainDir(conversationId) {
-  return path.join(getAntigravityDir(), 'brain', conversationId);
+  if (typeof conversationId !== 'string' || !isSafeSingleDirName(conversationId.trim())) {
+    throw new Error(`Invalid conversation ID: "${conversationId}"`);
+  }
+  const brainRoot = path.resolve(getAntigravityDir(), 'brain');
+  const resolved = path.resolve(brainRoot, conversationId.trim());
+  if (path.dirname(resolved) !== brainRoot) {
+    throw new Error(`Conversation path escapes brain directory: "${conversationId}"`);
+  }
+  return resolved;
 }
 
 function resolveConversationId(idOrPrefix) {
@@ -29,10 +43,15 @@ function resolveConversationId(idOrPrefix) {
   if (!query) {
     throw new Error('Conversation ID or prefix is empty.');
   }
+  if (!isSafeSingleDirName(trimmed)) {
+    throw new Error(`Invalid conversation ID or prefix: "${idOrPrefix}"`);
+  }
 
   const brainRoot = path.join(getAntigravityDir(), 'brain');
+  const resolvedBrainRoot = path.resolve(brainRoot);
   for (const candidate of new Set([trimmed, query])) {
-    const directDir = path.join(brainRoot, candidate);
+    const directDir = path.resolve(resolvedBrainRoot, candidate);
+    if (path.dirname(directDir) !== resolvedBrainRoot) continue;
     try {
       if (fs.existsSync(directDir) && fs.statSync(directDir).isDirectory()) {
         return candidate;

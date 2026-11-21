@@ -9,14 +9,26 @@ description: 提取代码文件或目录的紧凑语法骨架（仅保留类名�
 
 ## 使用方法
 
+> 注：Antigravity 仅向 Hook / MCP 进程注入 `PLUGIN_ROOT`，不会注入到常规 `run_command` 终端中；请直接使用下方全局插件安装路径（在独立仓库目录下也可直接运行 `tools/repo-skeleton/cli.js`）。
+
+### macOS / Linux (bash / zsh)
+
 ```bash
 # 1. 扫描源码目录（自动排除 node_modules/.git/dist/target 等，默认深度 2），一步拿到全局函数与行号地图
-node "${PLUGIN_ROOT:-$HOME/.gemini/config/plugins/agy-tokless}/tools/repo-skeleton/cli.js" <目录路径> --depth 2
+node "$HOME/.gemini/config/plugins/agy-tokless/tools/repo-skeleton/cli.js" <目录路径> --depth 2
 
 # 2. 提取单个大文件的函数/类签名与起止行号
-node "${PLUGIN_ROOT:-$HOME/.gemini/config/plugins/agy-tokless}/tools/repo-skeleton/cli.js" <文件路径>
+node "$HOME/.gemini/config/plugins/agy-tokless/tools/repo-skeleton/cli.js" <文件路径>
 ```
 
-> 注：Antigravity 仅向 Hook / MCP 进程注入 `PLUGIN_ROOT`，不会注入到常规 `run_command` 终端中；未设置时上面命令会自动回退到 `~/.gemini/config/plugins/agy-tokless`（Windows 为 `%USERPROFILE%\.gemini\config\plugins\agy-tokless`）。作为独立仓库运行时，也可直接调用仓库下的 `tools/repo-skeleton/cli.js`。
+### Windows (PowerShell)
+
+```powershell
+# 1. 扫描源码目录（自动排除 node_modules/.git/dist/target 等，默认深度 2），一步拿到全局函数与行号地图
+node "$env:USERPROFILE\.gemini\config\plugins\agy-tokless\tools\repo-skeleton\cli.js" <目录路径> --depth 2
+
+# 2. 提取单个大文件的函数/类签名与起止行号
+node "$env:USERPROFILE\.gemini\config\plugins\agy-tokless\tools\repo-skeleton\cli.js" <文件路径>
+```
 
 拿到目标函数的 `[L起-L止]` 行号后，直接调用 `read_file(Path, StartLine, EndLine)` 精准读取对应代码段。
