@@ -5,11 +5,11 @@ description: 审计与对比 Antigravity 会话的真实 Token 账单（Input / 
 
 # Antigravity 账单透视、缓存断层与底座税审计指南 (token-audit)
 
-无需消耗任何模型 Token，直接通过本地脚本解析 Antigravity 底层会话日志（`transcript_full.jsonl` / `transcript.jsonl`）与项目/全局 MCP 配置。
+无需消耗任何模型 Token，直接通过本地脚本解析 Antigravity 底层会话日志（`transcript_full.jsonl` / `transcript.jsonl`）与项目/全局 MCP 配置，并自动区分不同代际模型的上下文自动压缩水位（三代模型常见约 256K，四代模型推测约 512K）。
 
 ## 常用命令
 
-> 注：Antigravity 仅向 Hook / MCP 进程注入 `PLUGIN_ROOT`，不会注入到常规 `run_command` 终端中；请直接使用下方全局插件安装路径（在独立仓库目录下也可直接运行 `tools/agy-audit/cli.js`）。
+> 注：若已全局安装 `tokless` 包，可直接运行 `tokless audit <session|compare|project> ...`（兼容 `agy-audit`）。Antigravity 仅向 Hook / MCP 进程注入 `PLUGIN_ROOT`，不会注入到常规 `run_command` 终端中，未全局安装 CLI 时请直接使用下方插件路径：
 
 ### macOS / Linux (bash / zsh)
 

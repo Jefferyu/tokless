@@ -334,7 +334,7 @@ function testProgrammaticPackageExports(tmpDir) {
   const consumerDir = path.join(tmpDir, 'consumer-app');
   const nmScopeDir = path.join(consumerDir, 'node_modules');
   fs.mkdirSync(nmScopeDir, { recursive: true });
-  const pkgLinkPath = path.join(nmScopeDir, 'agy-tokless');
+  const pkgLinkPath = path.join(nmScopeDir, 'tokless');
   fs.symlinkSync(REPO_ROOT, pkgLinkPath, process.platform === 'win32' ? 'junction' : 'dir');
 
   const consumerScript = path.join(consumerDir, 'check-exports.js');
@@ -374,13 +374,16 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const rootPkg = require('agy-tokless');
-const skelMod = require('agy-tokless/skeleton');
-const auditMod = require('agy-tokless/audit');
-const guardMod = require('agy-tokless/read-guard');
-const pkgJson = require('agy-tokless/package.json');
+const rootPkg = require('tokless');
+const skelMod = require('tokless/skeleton');
+const auditMod = require('tokless/audit');
+const guardMod = require('tokless/read-guard');
+const pkgJson = require('tokless/package.json');
 
-assert.strictEqual(pkgJson.name, 'agy-tokless');
+assert.strictEqual(pkgJson.name, 'tokless');
+assert.strictEqual(pkgJson.version, '0.4.0');
+assert(pkgJson.bin && pkgJson.bin.tokless && pkgJson.bin['repo-skeleton'] && pkgJson.bin['agy-audit']);
+assert.deepStrictEqual(Object.keys(pkgJson.bin).sort(), ['agy-audit', 'repo-skeleton', 'tokless']);
 assert(pkgJson.exports['.'] && pkgJson.exports['./skeleton']);
 assert(pkgJson.exports['./audit'] && pkgJson.exports['./read-guard'] && pkgJson.exports['./package.json']);
 assert.deepStrictEqual(Object.keys(pkgJson.exports).sort(), ['.', './audit', './package.json', './read-guard', './skeleton']);
@@ -451,7 +454,7 @@ assert.strictEqual(detected.enabled, true);
 
 let blocked = false;
 try {
-  require('agy-tokless/tools/agy-audit/cli.js');
+  require('tokless/tools/agy-audit/cli.js');
 } catch (err) {
   blocked = err.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED';
 }
@@ -469,6 +472,142 @@ assert.strictEqual(blocked, true, 'Unexported internal path should throw ERR_PAC
   console.log('  [PASS] 4. Programmatic package.json exports (., ./skeleton, ./audit, ./read-guard, ./package.json)');
 }
 
+function testUnifiedCliAndCrossAgentTargets(tmpDir) {
+  const cliPath = path.join(REPO_ROOT, 'bin', 'tokless.js');
+  const { shouldForceCopy } = require(path.join(REPO_ROOT, 'targets', 'shared.js'));
+
+  assert.strictEqual(shouldForceCopy('/tmp/_npx/abc123/node_modules/tokless', false), true);
+  assert.strictEqual(shouldForceCopy('C:\\npm-cache\\_npx\\123\\tokless', false), true);
+  assert.strictEqual(shouldForceCopy('/opt/local/repo/tokless', false), false);
+  assert.strictEqual(shouldForceCopy('/opt/local/repo/tokless', true), true);
+
+  const verOut = execFileSync(process.execPath, [cliPath, '--version'], { encoding: 'utf8' }).trim();
+  assert.strictEqual(verOut, '0.4.0');
+
+  const helpOut = execFileSync(process.execPath, [cliPath, '--help'], { encoding: 'utf8' });
+  assert(helpOut.includes('tokless install') && helpOut.includes('tokless skeleton') && helpOut.includes('tokless audit'));
+
+  const sampleJs = path.join(tmpDir, 'cli-skel-sample.js');
+  const sampleLines = [];
+  for (let i = 1; i <= 240; i++) {
+    sampleLines.push(i === 12 ? 'function sampleTargetFn(a, b) { return a + b; }' : `const v${i} = ${i};`);
+  }
+  fs.writeFileSync(sampleJs, sampleLines.join('\n'), 'utf8');
+
+  const skelJsonRaw = execFileSync(process.execPath, [cliPath, 'skeleton', sampleJs, '--json'], { encoding: 'utf8' });
+  const skelJson = JSON.parse(skelJsonRaw);
+  assert.strictEqual(skelJson.mode, 'file');
+  assert.strictEqual(skelJson.totalLines, 240);
+  assert(skelJson.formatted.includes('function sampleTargetFn(a, b)'));
+
+  const auditSessionJsonl = path.join(tmpDir, 'cli-audit-session.jsonl');
+  fs.writeFileSync(
+    auditSessionJsonl,
+    [
+      JSON.stringify({ step_index: 1, type: 'USER_INPUT', created_at: '2026-06-01T10:00:00Z', content: 'Audit CLI' }),
+      JSON.stringify({ step_index: 2, type: 'PLANNER_RESPONSE', created_at: '2026-06-01T10:00:03Z', input_tokens: 900, output_tokens: 50, cache_read_tokens: 600 })
+    ].join('\n'),
+    'utf8'
+  );
+  const auditJsonRaw = execFileSync(process.execPath, [cliPath, 'audit', 'session', auditSessionJsonl, '--json'], { encoding: 'utf8' });
+  const auditJson = JSON.parse(auditJsonRaw);
+  assert.strictEqual(auditJson.stats.totalInputTokens, 900);
+
+  const isolatedHome = path.join(tmpDir, 'isolated-multi-agent-home');
+  const claudeDir = path.join(isolatedHome, '.claude');
+  const codexDir = path.join(isolatedHome, '.codex');
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.mkdirSync(codexDir, { recursive: true });
+
+  const existingSettings = {
+    theme: 'dark',
+    permissions: { allow: ['Bash(git status)'] },
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [{ type: 'command', command: 'echo custom-bash-guard', timeout: 5 }]
+        }
+      ],
+      PostToolUse: [
+        {
+          matcher: 'Write',
+          hooks: [{ type: 'command', command: 'echo post-write' }]
+        }
+      ]
+    }
+  };
+  const claudeSettingsPath = path.join(claudeDir, 'settings.json');
+  fs.writeFileSync(claudeSettingsPath, JSON.stringify(existingSettings, null, 2), 'utf8');
+
+  const envWithHome = { ...process.env, HOME: isolatedHome, USERPROFILE: isolatedHome };
+
+  execFileSync(process.execPath, [cliPath, 'install', '--copy'], {
+    env: envWithHome,
+    encoding: 'utf8',
+    stdio: 'pipe'
+  });
+
+  // Idempotent second install should not duplicate tokless PreToolUse hook
+  execFileSync(process.execPath, [cliPath, 'install', '--target', 'claude', '--copy'], {
+    env: envWithHome,
+    encoding: 'utf8',
+    stdio: 'pipe'
+  });
+
+  assert(fs.existsSync(path.join(isolatedHome, '.gemini', 'config', 'plugins', 'agy-tokless', 'plugin.json')));
+  assert(fs.existsSync(path.join(claudeDir, 'tokless', 'scripts', 'read-guard-hook.js')));
+  assert(fs.existsSync(path.join(claudeDir, 'skills', 'code-skeleton', 'SKILL.md')));
+  assert(fs.existsSync(path.join(codexDir, 'skills', 'code-skeleton', 'SKILL.md')));
+
+  const mergedSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8'));
+  assert.strictEqual(mergedSettings.theme, 'dark');
+  assert.deepStrictEqual(mergedSettings.permissions, existingSettings.permissions);
+  assert.strictEqual(mergedSettings.hooks.PostToolUse.length, 1);
+  assert.strictEqual(mergedSettings.hooks.PreToolUse.length, 2, 'Should keep custom Bash hook + 1 tokless Read hook');
+
+  const readHookGroup = mergedSettings.hooks.PreToolUse.find((g) => g.matcher === 'Read');
+  assert(readHookGroup && readHookGroup.hooks.length === 1);
+  const installedHookScript = path.join(claudeDir, 'tokless', 'scripts', 'read-guard-hook.js');
+  assert(readHookGroup.hooks[0].command.includes('read-guard-hook.js'));
+
+  const claudeDenyRes = spawnSync(
+    process.execPath,
+    [installedHookScript],
+    {
+      input: JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Read',
+        tool_input: { file_path: sampleJs }
+      }),
+      encoding: 'utf8'
+    }
+  );
+  assert.strictEqual(claudeDenyRes.status, 0);
+  const claudeDenyJson = JSON.parse(claudeDenyRes.stdout.trim());
+  assert.strictEqual(claudeDenyJson.hookSpecificOutput.permissionDecision, 'deny');
+  assert(claudeDenyJson.hookSpecificOutput.permissionDecisionReason.includes('function sampleTargetFn'));
+
+  execFileSync(process.execPath, [cliPath, 'uninstall', '--target', 'all'], {
+    env: envWithHome,
+    encoding: 'utf8',
+    stdio: 'pipe'
+  });
+
+  assert(!fs.existsSync(path.join(isolatedHome, '.gemini', 'config', 'plugins', 'agy-tokless')));
+  assert(!fs.existsSync(path.join(claudeDir, 'tokless')));
+  assert(!fs.existsSync(path.join(claudeDir, 'skills', 'code-skeleton')));
+  assert(!fs.existsSync(path.join(codexDir, 'skills', 'code-skeleton')));
+
+  const unmergedSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8'));
+  assert.strictEqual(unmergedSettings.theme, 'dark');
+  assert.strictEqual(unmergedSettings.hooks.PostToolUse.length, 1);
+  assert.strictEqual(unmergedSettings.hooks.PreToolUse.length, 1);
+  assert.strictEqual(unmergedSettings.hooks.PreToolUse[0].matcher, 'Bash');
+
+  console.log('  [PASS] 5. Unified tokless CLI & isolated Antigravity / Claude Code / Codex targets');
+}
+
 function main() {
   console.log('Running tokless verification suite...');
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokless-test-'));
@@ -477,6 +616,7 @@ function main() {
     testAgyAuditCacheCliffsAndMcpTax(tmpDir);
     testRepoSkeletonAndReadGuardHook(tmpDir);
     testProgrammaticPackageExports(tmpDir);
+    testUnifiedCliAndCrossAgentTargets(tmpDir);
     console.log('\nALL tokless checks passed!');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

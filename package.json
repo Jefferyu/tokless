@@ -1,9 +1,14 @@
 {
-  "name": "agy-tokless",
-  "version": "0.3.0",
+  "name": "tokless",
+  "version": "0.4.0",
   "description": "Token optimizer, AST codebase skeletonizer, PreToolUse blind-read guard, lightweight role templates, and cache/compaction auditor for AI coding agents.",
   "license": "MIT",
   "main": "./index.js",
+  "bin": {
+    "tokless": "./bin/tokless.js",
+    "repo-skeleton": "./tools/repo-skeleton/cli.js",
+    "agy-audit": "./tools/agy-audit/cli.js"
+  },
   "exports": {
     ".": "./index.js",
     "./skeleton": "./lib/skeleton.js",
@@ -11,15 +16,51 @@
     "./read-guard": "./lib/read-guard.js",
     "./package.json": "./package.json"
   },
-  "bin": {
-    "agy-audit": "./tools/agy-audit/cli.js",
-    "repo-skeleton": "./tools/repo-skeleton/cli.js"
-  },
+  "files": [
+    "bin/",
+    "targets/",
+    "index.js",
+    "install.js",
+    "plugin.json",
+    "hooks.json",
+    "lib/",
+    "tools/",
+    "scripts/",
+    "rules/",
+    "skills/",
+    "agents/",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "install-plugin": "node ./install.js",
+    "uninstall-plugin": "node ./install.js --uninstall",
     "audit": "node ./tools/agy-audit/cli.js",
     "skeleton": "node ./tools/repo-skeleton/cli.js",
-    "test": "node ./tests/verify-tokless.js && node --test ./tests/cross-platform-fixes.test.js"
+    "test": "node ./tests/verify-tokless.js && node --test ./tests/cross-platform-fixes.test.js",
+    "prepublishOnly": "npm test"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daoif/tokless.git"
+  },
+  "homepage": "https://github.com/daoif/tokless#readme",
+  "bugs": {
+    "url": "https://github.com/daoif/tokless/issues"
+  },
+  "keywords": [
+    "ai-coding",
+    "token-optimizer",
+    "code-skeleton",
+    "ast-skeleton",
+    "antigravity",
+    "claude-code",
+    "codex",
+    "pretooluse",
+    "prompt-caching",
+    "mcp"
+  ],
   "engines": {
     "node": ">=18.0.0"
   }
