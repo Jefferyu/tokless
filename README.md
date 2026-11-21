@@ -14,7 +14,7 @@
 
 **面向主流 AI 编程 Agent（原生支持 Google Antigravity、Claude Code、Codex CLI，开放 `targets/` 插件架构扩展更多工具）的纯 Node.js 零依赖省流套件——毫秒级 `[L起-L止]` 语法骨架导航、原生 `PreToolUse` 防盲读硬刹车、剥离 MCP 空载税的净身角色与 0 Token 本地账单/缓存断层体检。**
 
-在真实跨语言生产工程（Tauri + Rust + React）的严格 A/B 盲测中，启用 `tokless` 后单次任务减少 **34.4% 模型往返轮次**、砍掉 **53.2% 总 Token 吞吐（净省 1,138 万 Token）**、滚雪球 Cache Read 净省 **53.8%（少烧 1,123 万 Token）**，7 个真实深层 Bug 检出与修复质量零折损。
+在真实跨语言生产工程（Tauri + Rust + React）的严格 A/B 盲测中，启用 `tokless` 后单次任务减少 **34.4% 模型往返轮次**、砍掉 **53.2% 总 Token 吞吐（净省 1,138 万 Token）**、滚雪球 Cache Read 净省 **53.8%（少烧 1,123 万 Token）**，7 个真实深层 Bug 检出与修复质量零折损（*注：该组盲测数据完成于早期 `v0.1.0` 版本，当时仅含基础语法骨架与无行号盲读拦截，尚未针对后续新增净身角色与优化行号放行机制的新版本重跑完整长任务对照，当前版本理论综合省流表现更强*）。
 
 ---
 
@@ -99,11 +99,13 @@ $$\text{累计 Cache Read} \approx \text{平均上下文水位} \times \text{模
 | **定位首个 Bug 开始改代码耗时** | 227 秒（第 115 步） | **196 秒（第 81 步）** | **提速 31 秒 / 少花 34 步** |
 | **检出并修复的真实硬核 Bug 数** | 7 个（全部编译通过） | **7 个（全部编译通过）** | **0 质量损耗（并发细节更深）** |
 
-> 注：本轮实测基于四代模型，对照组峰值达 439,830 Tokens 未触发自动压缩（若换作 256K 阈值的三代模型早已触发强制压缩失忆）。完整逐项对比见 [benchmarks/real-world-bugfix-case.md](./benchmarks/real-world-bugfix-case.md) 与静态骨架基准测试 [benchmarks/static-skeleton-benchmark.md](./benchmarks/static-skeleton-benchmark.md)。
+> **实测版本与模型说明**：
+> 1. **测试版本背景（`v0.1.0` 基线）**：上表 A/B 盲测数据完成于早期的 `v0.1.0` 版本（当时仅包含基础语法骨架提取与无行号盲读拦截），目前尚未针对新版本重跑完整长任务对照；随着后续版本加入剥离外部 MCP 空载税的净身角色（`inheritMcp: false`）与优化后的行号切片放行机制，当前版本的理论综合省流表现更强。
+> 2. **压缩阈值参考**：本轮实测基于四代模型，对照组峰值达 439,830 Tokens 未触发自动压缩（若换作 256K 阈值的三代模型早已触发强制压缩失忆）。完整逐项对比见 [benchmarks/real-world-bugfix-case.md](./benchmarks/real-world-bugfix-case.md) 与静态骨架基准测试 [benchmarks/static-skeleton-benchmark.md](./benchmarks/static-skeleton-benchmark.md)。
 
 ---
 
-## 四大核心能力与全平台支持边界（v0.4.0）
+## 四大核心能力与全平台支持边界（v0.4.1）
 
 `tokless` 把「跨所有 AI 编程工具通用的省流内核」与「特定客户端的深度钩子/日志解析」拆得清清楚楚，绝不混为一谈：
 

@@ -14,7 +14,7 @@
 
 `tokless` cuts runaway prompt-cache snowballing without sacrificing code quality by combining sub-100ms `[Lstart-Lend]` AST-like code skeleton navigation, native `PreToolUse` blind-read brakes, MCP-stripped subagents, and 0-token local session billing/compaction audits.
 
-In a controlled A/B bug-hunt and fix benchmark on a production Tauri + Rust + React desktop codebase, `tokless` reduced **total token throughput by 53.2% (-11.38M tokens)**, cut **cumulative Cache Read tokens by 53.8% (-11.23M tokens)**, and finished in **34.4% fewer model turns** while finding and fixing the exact same **7 deep concurrency/logic bugs**.
+In a controlled A/B bug-hunt and fix benchmark on a production Tauri + Rust + React desktop codebase, `tokless` reduced **total token throughput by 53.2% (-11.38M tokens)**, cut **cumulative Cache Read tokens by 53.8% (-11.23M tokens)**, and finished in **34.4% fewer model turns** while finding and fixing the exact same **7 deep concurrency/logic bugs** (*Note: this A/B benchmark was recorded on early `v0.1.0` with only the baseline skeletonizer and unsliced blind-read block; we have not yet re-run a full long-horizon comparison on newer releases, which add MCP-stripped lean subagents and refined line-range pass-through for even stronger theoretical savings*).
 
 ---
 
@@ -77,11 +77,11 @@ Two isolated Git worktrees from the same commit (`3908815`), running the exact s
 | **Time to First Code Edit** | 227s (Step 115) | **196s (Step 81)** | **31s faster / -34 steps** |
 | **Real Bugs Found & Fixed (Build Verified)** | 7 | **7** | **Zero quality loss** |
 
-Full reports: [benchmarks/real-world-bugfix-case.md](./benchmarks/real-world-bugfix-case.md) and [benchmarks/static-skeleton-benchmark.md](./benchmarks/static-skeleton-benchmark.md).
+> **Version Note (`v0.1.0` Baseline)**: The Tauri + Rust + React A/B figures above were captured on early `v0.1.0` (which only included baseline syntax skeleton extraction and unsliced blind-read blocking) and have not yet been re-run end-to-end on the latest release. With MCP-stripped lean roles (`inheritMcp: false`) and refined line-slice pass-through introduced in subsequent versions, current theoretical end-to-end token savings are even higher. Full reports: [benchmarks/real-world-bugfix-case.md](./benchmarks/real-world-bugfix-case.md) and [benchmarks/static-skeleton-benchmark.md](./benchmarks/static-skeleton-benchmark.md).
 
 ---
 
-## Four Core Capabilities & Platform Boundaries (v0.4.0)
+## Four Core Capabilities & Platform Boundaries (v0.4.1)
 
 `tokless` draws a transparent line between **universal capabilities that work with every AI coding tool** and **host-specific hooks or log parsers**:
 

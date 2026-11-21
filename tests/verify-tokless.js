@@ -381,7 +381,7 @@ const guardMod = require('tokless/read-guard');
 const pkgJson = require('tokless/package.json');
 
 assert.strictEqual(pkgJson.name, 'tokless');
-assert.strictEqual(pkgJson.version, '0.4.0');
+assert.strictEqual(pkgJson.version, '0.4.1');
 assert(pkgJson.bin && pkgJson.bin.tokless && pkgJson.bin['repo-skeleton'] && pkgJson.bin['agy-audit']);
 assert.deepStrictEqual(Object.keys(pkgJson.bin).sort(), ['agy-audit', 'repo-skeleton', 'tokless']);
 assert(pkgJson.exports['.'] && pkgJson.exports['./skeleton']);
@@ -482,7 +482,7 @@ function testUnifiedCliAndCrossAgentTargets(tmpDir) {
   assert.strictEqual(shouldForceCopy('/opt/local/repo/tokless', true), true);
 
   const verOut = execFileSync(process.execPath, [cliPath, '--version'], { encoding: 'utf8' }).trim();
-  assert.strictEqual(verOut, '0.4.0');
+  assert.strictEqual(verOut, '0.4.1');
 
   const helpOut = execFileSync(process.execPath, [cliPath, '--help'], { encoding: 'utf8' });
   assert(helpOut.includes('tokless install') && helpOut.includes('tokless skeleton') && helpOut.includes('tokless audit'));
