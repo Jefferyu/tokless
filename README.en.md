@@ -1,4 +1,12 @@
+<p align="left">
+  <img src="./assets/logo.svg" width="60" height="60" alt="Tokless Logo" />
+</p>
+
 # Tokless
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-18181B.svg)](./LICENSE)
+[![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-10B981.svg)](./package.json)
+[![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-18181B.svg)](./package.json)
 
 [简体中文](./README.md) | English
 
@@ -73,26 +81,73 @@ Full reports: [benchmarks/real-world-bugfix-case.md](./benchmarks/real-world-bug
 
 ---
 
-## Core CLI & Host Capabilities
+## Four Core Capabilities & Platform Boundaries (v0.4.0)
 
-| Host Agent | `tokless skeleton` | `PreToolUse` Blind-Read Guard | Lean Subagents (`inheritMcp: false`) | `tokless audit` Billing & MCP Tax |
+`tokless` draws a transparent line between **universal capabilities that work with every AI coding tool** and **host-specific hooks or log parsers**:
+
+| Host Agent | 1. `tokless skeleton` + `AGENTS.md` Rules | 2. `PreToolUse` Blind-Read Guard | 3. Lean Subagents (`inheritMcp: false`) | 4. `tokless audit` Inspector |
 | :--- | :---: | :---: | :---: | :---: |
-| **Google Antigravity** | Native Skill + CLI | Native `hooks.json` (`read_file` / `view_file`) | `tokless-coder` / `tokless-reviewer` | `transcript_full.jsonl` + MCP tax |
-| **Claude Code** | `~/.claude/skills` + CLI | Merged `~/.claude/settings.json` (`Read`) | — | — |
-| **Codex CLI** | `~/.codex/skills` + CLI | — | — | — |
+| **Platform Scope** | **100% Universal across all AI coding tools** | **Extensible hook (Native on Antigravity & Claude Code)** | **Antigravity Plugin Only** | **`audit project` Universal; `session / compare` Antigravity Only** |
+| **Google Antigravity** | Native Skill + CLI + `rules/AGENTS.md` | Native `hooks.json` (`read_file` / `view_file`) | `tokless-coder` / `tokless-reviewer` | Full (`project` + `session` / `compare`) |
+| **Claude Code** | `~/.claude/skills` + CLI | Merged `~/.claude/settings.json` (`Read`) | — | `audit project` (rules & MCP tax) |
+| **Codex CLI** | `~/.codex/skills` + CLI + `AGENTS.md` | — | — | `audit project` (rules density) |
+| **Other Agents** (Cursor / Windsurf / Cline / Roo Code / Trae / OpenCode, etc.) | `npm i -g tokless` + root `AGENTS.md` (Ready Today) | PRs welcome via `targets/` (see `claude-code.js`) | — | `audit project` (rules density) |
+
+### 1. `tokless skeleton` (alias `repo-skeleton`) + `rules/AGENTS.md` — [100% Universal]
+
+Zero pre-indexing, pure Node.js standard library. Extracts class/function signatures and exact **`[Lstart-Lend]` line ranges** across `.js/.ts/.tsx/.py/.go/.rs/.java/.c/.cpp/.md` in milliseconds, cutting exploration tokens by **85%~97%** when paired with [`rules/AGENTS.md`](./rules/AGENTS.md):
 
 ```bash
-# 1. Generate compact [Lstart-Lend] AST-like signatures for a directory or large file
 npx tokless skeleton ./src --depth 2
 npx tokless skeleton ./src/App.tsx --json
-
-# 2. Audit Antigravity session token bills, cache cliffs, compaction checkpoints, and MCP tax (0 LLM tokens)
-npx tokless audit session <session-id-prefix>
-npx tokless audit compare <before-id> <after-id>
-npx tokless audit project <project-dir>
 ```
 
-> **Guardrail Philosophy:** `read-guard-hook.js` only intercepts blind full-file reads (`> 200` lines, configurable via `TOKLESS_READ_MAX_LINES`) and fake `1..EOF` slices. Once explicit line numbers are supplied, any function span—whether 50 or 500 lines—is allowed in a single read so agents never waste extra turns reading fragments.
+### 2. `PreToolUse` Blind-Read Brake (`scripts/read-guard-hook.js`) — [Extensible Hook · Native on Antigravity & Claude Code]
+
+Only intercepts blind full-file reads (`> 200` lines, configurable via `TOKLESS_READ_MAX_LINES`) and fake `1..EOF` slices, returning the file's `[Lstart-Lend]` skeleton inline. Once explicit line numbers are supplied, any function span—whether 50 or 500 lines—is allowed in a single read so agents never burn extra turns reading fragments.
+
+### 3. MCP-Stripped Lean Subagents (`agents/`) — [Antigravity Plugin Only]
+
+Ships [`tokless-coder`](./agents/tokless-coder.md) and read-only [`tokless-reviewer`](./agents/tokless-reviewer.md) with `inheritMcp: false`, stripping unused external MCP schemas to eliminate thousands of idle base tokens on every coding/review turn.
+
+### 4. `tokless audit` (alias `agy-audit`) — [`audit project` Universal · `session / compare` Antigravity Only]
+
+Offline 0-LLM-token inspector for rule bloat, MCP schema overhead, and Antigravity session transcripts:
+
+```bash
+# [Universal] Audit AGENTS.md / SKILL.md bloat and workspace/global MCP schema base tax
+npx tokless audit project <project-dir>
+
+# [Antigravity Only] Dissect a session's Top 5 costliest steps, Prefix Cache cliffs, and compactions
+npx tokless audit session <session-id-prefix>
+
+# [Antigravity Only] Side-by-side A/B token bill comparison between two sessions
+npx tokless audit compare <before-id> <after-id>
+```
+
+---
+
+## Where Each Target Installs & How to Use Day-to-Day
+
+### 1. Built-in One-Command Targets (`npx tokless install`)
+
+- **Google Antigravity** (`--target agy`):
+  - **Installed to**: `~/.gemini/config/plugins/agy-tokless/` (`plugin.json`, `hooks.json`, `rules/AGENTS.md`, `skills/`, `agents/`).
+  - **How it triggers**: Active automatically in new sessions—`PreToolUse` blocks blind reads on large files, `code-skeleton` guides ranged reads, `tokless-coder` / `tokless-reviewer` run without MCP tax, and `token-audit` / `npx tokless audit session <id>` inspects session bills.
+- **Claude Code** (`--target claude`):
+  - **Installed to**: Core runtime in `~/.claude/tokless/`, skill in `~/.claude/skills/code-skeleton/SKILL.md`, and non-destructively merged `PreToolUse` (`Read`) hook in `~/.claude/settings.json` (preserves your existing permissions and custom hooks; cleanly restored on uninstall).
+  - **How it triggers**: Active automatically whenever you launch `claude`—un-sliced `Read` calls over 200 lines are intercepted with an inline `[Lstart-Lend]` map so Claude immediately re-reads the exact target lines.
+- **Codex CLI** (`--target codex`):
+  - **Installed to**: `~/.codex/skills/code-skeleton/` (`SKILL.md` + bundled `tools/repo-skeleton`).
+  - **How it triggers**: Codex discovers the `code-skeleton` skill automatically; copy [`rules/AGENTS.md`](./rules/AGENTS.md) into your repo root `AGENTS.md` for consistent proactive triggering.
+
+### 2. Using `tokless` with Cursor, Windsurf, Cline, Roo Code, Trae, OpenCode & Others
+
+- **Use It Right Now (1-Minute Universal Setup)**:
+  1. Install the global CLI via `npm i -g tokless` (exposes `tokless skeleton` and `tokless audit project` globally);
+  2. Copy the lean-reading rules from [`rules/AGENTS.md`](./rules/AGENTS.md) into your repository's root `AGENTS.md` (or `.cursor/rules/`, `.windsurfrules`, `.clinerules`, etc.). Your agent can immediately run `tokless skeleton <path>` before reading large files, and you can run `tokless audit project .` anytime.
+- **Honest Note on Native Auto-Installers & Community Co-Creation**:
+  Because maintainer bandwidth is currently focused on core accuracy, we haven't hand-wired global config paths and hook formats for a dozen different editors yet. **If you use another coding agent daily, you are warmly encouraged to ask your AI to build a target adapter modeled after [`targets/claude-code.js`](./targets/claude-code.js) and open a PR—we will review and publish it promptly, and we will also add more official built-in targets over time.**
 
 ---
 
@@ -126,11 +181,11 @@ const verdict = evaluateReadGuard({
 
 Host integrations live as self-contained adapters under [`targets/`](./targets/):
 
-- [`targets/antigravity.js`](./targets/antigravity.js)
-- [`targets/claude-code.js`](./targets/claude-code.js)
-- [`targets/codex.js`](./targets/codex.js)
+- [`targets/antigravity.js`](./targets/antigravity.js) — Google Antigravity plugin, hooks, and lean subagents
+- [`targets/claude-code.js`](./targets/claude-code.js) — Claude Code `~/.claude/settings.json` non-destructive hook merge + skill (best reference template for new adapters)
+- [`targets/codex.js`](./targets/codex.js) — OpenAI Codex CLI skill installer
 
-Pull requests adding adapters for **Cursor, Windsurf, Cline, Roo Code, OpenCode, GitHub Copilot**, or expanding language parsers in `tools/repo-skeleton` are warmly welcome. Simply add a single-file adapter, register it in [`targets/index.js`](./targets/index.js), and run:
+Rather than guessing every editor's private config layout upfront, we prioritize clean community co-creation: if you use **Cursor, Windsurf, Cline, Roo Code, Trae, OpenCode, or GitHub Copilot**, point your AI at [`targets/claude-code.js`](./targets/claude-code.js), register the new adapter in [`targets/index.js`](./targets/index.js), and open a Pull Request (language parser additions under `tools/repo-skeleton` are welcome too). Verified PRs are merged and released right away, while official support for additional hosts will continue rolling out over time. Run the verification suite locally before submitting:
 
 ```bash
 npm test

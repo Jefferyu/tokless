@@ -1,4 +1,12 @@
+<p align="left">
+  <img src="./assets/logo.svg" width="60" height="60" alt="Tokless Logo" />
+</p>
+
 # Tokless
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-18181B.svg)](./LICENSE)
+[![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-10B981.svg)](./package.json)
+[![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-18181B.svg)](./package.json)
 
 简体中文 | [English](./README.en.md)
 
@@ -95,17 +103,21 @@ $$\text{累计 Cache Read} \approx \text{平均上下文水位} \times \text{模
 
 ---
 
-## 三大核心组件与各工具支持一览
+## 四大核心能力与全平台支持边界（v0.4.0）
 
-| 宿主工具 | `tokless skeleton` 语法骨架 | `PreToolUse` 防盲读硬护栏 | 净身子角色 (`inheritMcp: false`) | `tokless audit` 账单与底座税体检 |
+`tokless` 把「跨所有 AI 编程工具通用的省流内核」与「特定客户端的深度钩子/日志解析」拆得清清楚楚，绝不混为一谈：
+
+| 宿主工具 | 1. `tokless skeleton` 语法骨架 + `AGENTS.md` 规范 | 2. `PreToolUse` 防盲读硬刹车 | 3. 净身子角色 (`inheritMcp: false`) | 4. `tokless audit` 体检仪 |
 | :--- | :---: | :---: | :---: | :---: |
-| **Google Antigravity** | 原生 Skill + CLI | 原生 `hooks.json` (`read_file` / `view_file`) | `tokless-coder` / `tokless-reviewer` | 原生解析 `transcript_full.jsonl` + MCP 税 |
-| **Claude Code** | `~/.claude/skills` + CLI | 无损合并 `~/.claude/settings.json` (`Read`) | — | — |
-| **Codex CLI** | `~/.codex/skills` + CLI | — | — | — |
+| **能力通用边界** | **100% 所有 AI 编程工具通用** | **可扩展钩子机制（已打通 Antigravity / Claude Code）** | **Antigravity 插件专用** | **`audit project` 跨端通用；`session / compare` 属 Antigravity 专用** |
+| **Google Antigravity** | 原生 Skill + CLI + `rules/AGENTS.md` | 原生 `hooks.json` (`read_file` / `view_file`) | `tokless-coder` / `tokless-reviewer` | 全功能支持（`project` + `session` / `compare`） |
+| **Claude Code** | `~/.claude/skills` + CLI | 无损合并 `~/.claude/settings.json` (`Read`) | — | 支持 `audit project` 规则与 MCP 税体检 |
+| **Codex CLI** | `~/.codex/skills` + CLI + `AGENTS.md` | — | — | 支持 `audit project` 规则体检 |
+| **其他工具**（Cursor / Windsurf / Cline / Roo Code / Trae / OpenCode 等） | `npm i -g tokless` + 项目根 `AGENTS.md` 立即可用 | 欢迎参考 `targets/claude-code.js` 共创适配 PR | — | 支持 `audit project` 规则体检 |
 
-### 1. `tokless skeleton`（兼容 `repo-skeleton`）— 毫秒级代码语法骨架导航
+### 1. `tokless skeleton`（兼容 `repo-skeleton`）+ `rules/AGENTS.md` 省流规范 —【100% 所有 AI 编程工具通用】
 
-无需预建索引数据库，纯 Node.js 标准库毫秒级提取 `.js/.ts/.tsx/.py/.go/.rs/.java/.c/.cpp/.md` 等文件的类名、函数签名、接口与精确 **`[L起-L止]` 行号范围**，探索期单文件省流 **85%~97%**：
+无需预建索引数据库，纯 Node.js 标准库毫秒级提取 `.js/.ts/.tsx/.py/.go/.rs/.java/.c/.cpp/.md` 等文件的类名、函数签名、接口与精确 **`[L起-L止]` 行号范围**，配合 [`rules/AGENTS.md`](./rules/AGENTS.md) 中的两步精准读取规范，探索期单文件省流 **85%~97%**：
 
 ```bash
 # 扫描整个源码目录（自动排除 node_modules/.git/dist/target 等），一步生成全局行号地图
@@ -115,25 +127,52 @@ npx tokless skeleton ./src --depth 3
 npx tokless skeleton ./src/App.tsx
 ```
 
-### 2. `PreToolUse` 防盲读硬护栏与净身角色（`scripts/read-guard-hook.js` + `agents/`）
+### 2. `PreToolUse` 防盲读硬刹车（`scripts/read-guard-hook.js`）—【可扩展钩子机制，目前已原生打通 Google Antigravity 与 Claude Code】
 
-- **精准防盲读，绝不设死板跨度锁死**：当 AI 不传起止行号盲读超过 200 行（可通过环境变量 `TOKLESS_READ_MAX_LINES` 调整）的代码文件，或传入 `1~文件末尾` 假切片糊弄时，钩子自动拦截并当场返回该文件的 `[L起-L止]` 语法骨架；一旦拿到明确行号，无论目标函数是 50 行还是 500 行均一次完整放行，避免拆成多轮碎片读取倒贴 Cache Read。
-- **剥离 MCP 空载底座税（Antigravity `agents/`）**：内置 [`tokless-coder`](./agents/tokless-coder.md) 与只读 [`tokless-reviewer`](./agents/tokless-reviewer.md)，默认声明 `inheritMcp: false` 卸除用不上的外部 MCP Schema，消除每一步固定背负的数千至数万空载底座税。
+精准防盲读，绝不设死板跨度锁死：当 AI 不传起止行号盲读超过 200 行（可通过环境变量 `TOKLESS_READ_MAX_LINES` 调整）的代码文件，或传入 `1~文件末尾` 假切片糊弄时，钩子自动拦截并当场返回该文件的 `[L起-L止]` 语法骨架；一旦拿到明确行号，无论目标函数是 50 行还是 500 行均一次完整放行，避免拆成多轮碎片读取倒贴 Cache Read。
 
-### 3. `tokless audit`（兼容 `agy-audit`）— 0 Token 账单、缓存断层与底座税透视仪
+### 3. 剥离外部 MCP 空载底座税的净身子角色（`agents/`）—【Antigravity 插件专用】
 
-直接离线解析本地 Antigravity 会话日志与项目规则配置，不花 1 个模型 Token：
+内置 [`tokless-coder`](./agents/tokless-coder.md) 与只读 [`tokless-reviewer`](./agents/tokless-reviewer.md)，默认声明 `inheritMcp: false` 卸除纯写代码/审代码时用不上的外部 MCP Schema，消除每一步固定背负的数千至数万空载底座税。
+
+### 4. `tokless audit`（兼容 `agy-audit`）体检仪 —【`audit project` 跨端通用；`audit session / compare` 属 Antigravity 专用】
+
+直接离线解析本地项目规则配置与 Antigravity 会话日志，不花 1 个模型 Token：
 
 ```bash
-# 1. 解剖单个会话（支持短 ID 前缀）：查 Top 5 烧钱步骤、Prefix Cache 断层与压缩节点
+# [跨端通用] 诊断项目的 AGENTS.md / SKILL.md 肥胖度与全局/工作区 MCP 空载底座税
+npx tokless audit project <项目目录路径>
+
+# [Antigravity 专用] 解剖单个会话（支持短 ID 前缀）：查 Top 5 烧钱步骤、Prefix Cache 断层与压缩节点
 npx tokless audit session <会话ID前缀>
 
-# 2. 优化前后两个会话的 A/B 量化账单对比
+# [Antigravity 专用] 优化前后两个会话的 A/B 量化账单对比
 npx tokless audit compare <优化前ID> <优化后ID>
-
-# 3. 诊断项目的 AGENTS.md / SKILL.md 肥胖度与全局/工作区 MCP 空载税
-npx tokless audit project <项目目录路径>
 ```
+
+---
+
+## 各工具安装位置与日常使用方法
+
+### 1. 已内置一键挂载的三大工具（运行 `npx tokless install` 后分别装到了哪里、怎么触发）
+
+- **Google Antigravity**（`--target agy`）：
+  - **安装位置**：`~/.gemini/config/plugins/agy-tokless/`（挂载 `plugin.json`、`hooks.json`、`rules/AGENTS.md`、`skills/` 与 `agents/`）。
+  - **日常触发**：装好后新开对话即自动生效——探索大文件时自动触发 `code-skeleton` 技能与 `PreToolUse` 防盲读拦截；派发纯编码或审查子任务时可指定 `tokless-coder` / `tokless-reviewer` 卸除 MCP 税；需要查账单时直接让 AI 调用 `token-audit` 技能或手动运行 `npx tokless audit session <ID>`。
+- **Claude Code**（`--target claude`）：
+  - **安装位置**：核心脚本存入 `~/.claude/tokless/`，技能写入 `~/.claude/skills/code-skeleton/SKILL.md`，并将 `Read` 防盲读钩子无损合并进 `~/.claude/settings.json`（保留你原有的权限与自定义钩子，卸载时精准剥离还原）。
+  - **日常触发**：在任意项目启动 `claude` 后自动生效——当 Claude 试图不带 `offset/limit` 盲读超过 200 行的代码文件时，`PreToolUse` 钩子会自动拦下并把 `[L起-L止]` 骨架直接喂回给它，引导它按行号精读。
+- **Codex CLI**（`--target codex`）：
+  - **安装位置**：`~/.codex/skills/code-skeleton/`（含 `SKILL.md` 与零依赖 `tools/repo-skeleton` 脚本）。
+  - **日常触发**：Codex 会自动发现并按需调用 `code-skeleton` 技能先看行号骨架再精读源码；建议同时将 [`rules/AGENTS.md`](./rules/AGENTS.md) 中的省流规范合入项目根目录的 `AGENTS.md` 以强化主动触发。
+
+### 2. 其他 AI 编程工具（Cursor、Windsurf、Cline、Roo Code、Trae、OpenCode 等）怎么用？
+
+- **当下立即可用法（1 分钟接入核心省流能力）**：
+  1. 在终端运行 `npm i -g tokless` 安装全局 CLI（获得全局 `tokless skeleton` 与 `tokless audit project` 命令）；
+  2. 将仓库内 [`rules/AGENTS.md`](./rules/AGENTS.md) 的省流读取规范复制到你项目根目录的 `AGENTS.md`（或对应编辑器的 `.cursor/rules/`、`.windsurfrules`、`.clinerules` 等规则文件）中。配置完成后，你的 AI 助手就会在读大文件前主动调用 `tokless skeleton <路径>` 拿 `[L起-L止]` 行号地图并按需精读，也能随时用 `tokless audit project .` 检查规则体积。
+- **关于官方一键挂载与共创适配的坦诚说明**：
+  由于作者近期精力有限，暂时还没法逐一去折腾十几个编辑器各自的专属全局目录与钩子格式。**如果你日常主力使用其他工具，非常欢迎直接让你的 AI 参考 [`targets/claude-code.js`](./targets/claude-code.js) 写一个对应的挂载适配并提交 PR——我们审核代码确认干净无误后会第一时间合并发版；后续作者空下来也会逐步跟进补充更多主流工具的官方一键支持。**
 
 ---
 
@@ -168,10 +207,10 @@ const verdict = evaluateReadGuard({
 `tokless` 将各宿主的安装与卸载逻辑完全解耦在 [`targets/`](./targets/) 目录下，每个宿主只需一个独立的百行级适配器文件：
 
 - [`targets/antigravity.js`](./targets/antigravity.js) — Google Antigravity 插件、钩子与净身角色挂载
-- [`targets/claude-code.js`](./targets/claude-code.js) — Claude Code `~/.claude/settings.json` 无损合并与技能挂载
+- [`targets/claude-code.js`](./targets/claude-code.js) — Claude Code `~/.claude/settings.json` 无损合并与技能挂载（推荐新增适配时优先参考）
 - [`targets/codex.js`](./targets/codex.js) — OpenAI Codex CLI 技能挂载
 
-非常欢迎社区开发者提交 Pull Request，仿照现有模块在 [`targets/index.js`](./targets/index.js) 中注册更多工具适配（如 **Cursor、Windsurf、Cline、Roo Code、OpenCode、GitHub Copilot** 等），或为 `tools/repo-skeleton` 补充更多语言的语法签名识别。
+因作者近期精力有限，暂未逐一折腾十几个编辑器的专属全局配置与钩子格式。非常欢迎使用 **Cursor、Windsurf、Cline、Roo Code、Trae、OpenCode、GitHub Copilot** 等工具的开发者，直接让自己的 AI 参考 [`targets/claude-code.js`](./targets/claude-code.js) 完成适配并在 [`targets/index.js`](./targets/index.js) 中注册后提交 Pull Request（或为 `tools/repo-skeleton` 补充更多语言的语法签名识别）——我们审核无误后会立即合并发版；后续作者空下来也会逐步补充更多工具的官方一键支持。
 
 提交 PR 前请在本地运行全套自检（包含跨平台路径测试与 100% 零私人路径泄漏门禁）：
 
