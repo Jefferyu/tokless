@@ -81,7 +81,7 @@ Two isolated Git worktrees from the same commit (`3908815`), running the exact s
 
 ---
 
-## Four Core Capabilities & Platform Boundaries (v0.4.1)
+## Four Core Capabilities & Platform Boundaries (v0.5.0)
 
 `tokless` draws a transparent line between **universal capabilities that work with every AI coding tool** and **host-specific hooks or log parsers**:
 

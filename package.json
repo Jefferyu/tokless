@@ -1,6 +1,6 @@
 {
   "name": "tokless",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Token optimizer, AST codebase skeletonizer, PreToolUse blind-read guard, lightweight role templates, and cache/compaction auditor for AI coding agents.",
   "license": "MIT",
   "main": "./index.js",

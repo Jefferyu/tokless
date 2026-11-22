@@ -401,7 +401,8 @@ const guardMod = require('tokless/read-guard');
 const pkgJson = require('tokless/package.json');
 
 assert.strictEqual(pkgJson.name, 'tokless');
-assert.strictEqual(pkgJson.version, '0.4.1');
+assert.strictEqual(pkgJson.version, '0.5.0');
+assert.strictEqual(typeof rootPkg.scanFileLightweight, 'function');
 assert(pkgJson.bin && pkgJson.bin.tokless && pkgJson.bin['repo-skeleton'] && pkgJson.bin['agy-audit']);
 assert.deepStrictEqual(Object.keys(pkgJson.bin).sort(), ['agy-audit', 'repo-skeleton', 'tokless']);
 assert(pkgJson.exports['.'] && pkgJson.exports['./skeleton']);
@@ -523,7 +524,9 @@ function testUnifiedCliAndCrossAgentTargets(tmpDir) {
   assert.strictEqual(shouldForceCopy('/opt/local/repo/tokless', true), true);
 
   const verOut = execFileSync(process.execPath, [cliPath, '--version'], { encoding: 'utf8' }).trim();
-  assert.strictEqual(verOut, '0.4.1');
+  assert.strictEqual(verOut, '0.5.0');
+  const pluginManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'plugin.json'), 'utf8'));
+  assert.strictEqual(pluginManifest.version, '0.5.0');
 
   const helpOut = execFileSync(process.execPath, [cliPath, '--help'], { encoding: 'utf8' });
   assert(helpOut.includes('tokless install') && helpOut.includes('tokless skeleton') && helpOut.includes('tokless audit'));
@@ -597,9 +600,15 @@ function testUnifiedCliAndCrossAgentTargets(tmpDir) {
   });
 
   assert(fs.existsSync(path.join(isolatedHome, '.gemini', 'config', 'plugins', 'agy-tokless', 'plugin.json')));
+  assert(fs.existsSync(path.join(isolatedHome, '.gemini', 'config', 'plugins', 'agy-tokless', 'tools', 'repo-skeleton', 'lib', 'core', 'registry.js')));
+  assert(fs.existsSync(path.join(isolatedHome, '.gemini', 'config', 'plugins', 'agy-tokless', 'tools', 'repo-skeleton', 'lib', 'langs', 'java', 'index.js')));
   assert(fs.existsSync(path.join(claudeDir, 'tokless', 'scripts', 'read-guard-hook.js')));
+  assert(fs.existsSync(path.join(claudeDir, 'tokless', 'tools', 'repo-skeleton', 'lib', 'core', 'registry.js')));
+  assert(fs.existsSync(path.join(claudeDir, 'tokless', 'tools', 'repo-skeleton', 'lib', 'langs', 'java', 'index.js')));
   assert(fs.existsSync(path.join(claudeDir, 'skills', 'code-skeleton', 'SKILL.md')));
   assert(fs.existsSync(path.join(codexDir, 'skills', 'code-skeleton', 'SKILL.md')));
+  assert(fs.existsSync(path.join(codexDir, 'skills', 'code-skeleton', 'tools', 'repo-skeleton', 'lib', 'core', 'registry.js')));
+  assert(fs.existsSync(path.join(codexDir, 'skills', 'code-skeleton', 'tools', 'repo-skeleton', 'lib', 'langs', 'java', 'index.js')));
 
   const mergedSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8'));
   assert.strictEqual(mergedSettings.theme, 'dark');
