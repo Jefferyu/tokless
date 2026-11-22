@@ -460,12 +460,12 @@ function findDeclarationRange(analyzed, startIdx, lang) {
         trimmed.endsWith('(') ||
         trimmed.endsWith('|') ||
         trimmed.endsWith('&') ||
-        /\b(?:extends|implements|where)\s*$/.test(trimmed)
+        /\b(?:extends|implements|throws|where)\s*$/.test(trimmed)
       ) {
         continue;
       }
 
-      // 偷看下一个非空 clean 行是否以 `{`、`=>`、`|`、`&`、`where` 开头
+      // 偷看下一个非空 clean 行是否以 `{`、`=>`、`|`、`&`、`throws`、`where` 开头
       let nextTrimmed = '';
       for (let n = j + 1; n < analyzed.length && n <= j + 4; n++) {
         const t = analyzed[n].clean.trim();
@@ -479,6 +479,7 @@ function findDeclarationRange(analyzed, startIdx, lang) {
         nextTrimmed.startsWith('=>') ||
         nextTrimmed.startsWith('|') ||
         nextTrimmed.startsWith('&') ||
+        (lang === 'c' && /^throws\b/.test(nextTrimmed)) ||
         (lang === 'rust' && nextTrimmed.startsWith('where'))
       ) {
         continue;
@@ -571,6 +572,47 @@ function hasFunctionRhs(analyzed, startIdx, headerEndIdx) {
 }
 
 /**
+ * 识别顶层 IIFE 包装块（如 `(function (global) { ... })(window)`、`(() => { ... })()`）
+ * — 为什么这么写 —
+ * 1. 传统浏览器/老项目 JS 普遍用顶层 IIFE 隔离作用域，函数均位于 braceStart === 1；若只扫描 braceStart === 0 会导致整文件零输出。
+ * 2. 不能复用 findDeclarationRange，因为外层包裹圆括号 `(function...` 会使遇到 `{` 时 paren === 1，无法触发 blockStarted。
+ * 3. 直接使用 preprocessBraceLines 已算好的 braceStart/braceEnd 查找闭合行，能精确跳过字符串和注释内的花括号。
+ */
+function findIifeRange(analyzed, startIdx) {
+  const startInfo = analyzed[startIdx];
+  const trimmed = startInfo.clean.trim();
+  // 必须带显式 IIFE 表达式前缀（`(function`、`!function`、`void function`、`(() =>`），绝不误匹配普通顶层 `function foo()`
+  const isIifeHeader =
+    /^(?:;\s*)?\(\s*(?:async\s+)?function\b/.test(trimmed) ||
+    /^(?:;\s*)?(?:[!+~-]\s*|void\s+)(?:async\s+)?function\b/.test(trimmed) ||
+    /^(?:;\s*)?\(\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{?/.test(trimmed);
+  if (!isIifeHeader) return null;
+
+  // 确认本行或紧随的 1-2 行确实开启了函数体花括号（braceEnd > braceStart）
+  let headerEndIdx = -1;
+  for (let j = startIdx; j < analyzed.length && j <= startIdx + 2; j++) {
+    if (analyzed[j].braceEnd > startInfo.braceStart) {
+      headerEndIdx = j;
+      break;
+    }
+  }
+  if (headerEndIdx === -1) return null;
+
+  for (let j = headerEndIdx; j < analyzed.length; j++) {
+    if (analyzed[j].braceEnd <= startInfo.braceStart) {
+      // 单行立即执行短表达式不展开，仅展开多行 IIFE 容器
+      if (j <= headerEndIdx) return null;
+      return {
+        headerEndIdx,
+        endIdx: j,
+        bodyDepth: startInfo.braceStart + 1,
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * 解析 JS / TS / JSX / TSX / MJS / CJS 文件
  */
 function parseJsTs(lines, lineOffset = 0) {
@@ -578,6 +620,8 @@ function parseJsTs(lines, lineOffset = 0) {
   const items = [];
   let activeClassEnd = -1;
   let activeClassBodyDepth = -1;
+  let activeIifeEnd = -1;
+  let activeIifeBodyDepth = -1;
 
   for (let i = 0; i < analyzed.length; i++) {
     const info = analyzed[i];
@@ -588,14 +632,32 @@ function parseJsTs(lines, lineOffset = 0) {
       activeClassEnd = -1;
       activeClassBodyDepth = -1;
     }
+    if (activeIifeEnd !== -1 && i > activeIifeEnd) {
+      activeIifeEnd = -1;
+      activeIifeBodyDepth = -1;
+    }
+
+    // 顶层遇到 IIFE 包装时，下潜一层作用域提取内部函数/类，避免传统前端 JS 骨架扫空
+    if (info.braceStart === 0 && activeIifeEnd === -1) {
+      const iife = findIifeRange(analyzed, i);
+      if (iife) {
+        activeIifeEnd = iife.endIdx;
+        activeIifeBodyDepth = iife.bodyDepth;
+        i = iife.headerEndIdx;
+        continue;
+      }
+    }
+
+    const topScopeDepth =
+      activeIifeEnd !== -1 && i <= activeIifeEnd ? activeIifeBodyDepth : 0;
 
     const inClassBody =
       activeClassEnd !== -1 &&
       i <= activeClassEnd &&
       info.braceStart === activeClassBodyDepth;
 
-    // 1. 顶层声明 (braceStart === 0)
-    if (info.braceStart === 0) {
+    // 1. 顶层声明（ESM/CJS 为 braceStart === 0，IIFE 内部一级为 braceStart === 1）
+    if (info.braceStart === topScopeDepth && !inClassBody) {
       let kind = null;
       let name = '';
 
@@ -706,7 +768,7 @@ function parseJsTs(lines, lineOffset = 0) {
 
         if (kind === 'class' && range.hasBlock) {
           activeClassEnd = range.endIdx;
-          activeClassBodyDepth = 1;
+          activeClassBodyDepth = topScopeDepth + 1;
           i = range.headerEndIdx; // 继续扫描 class 内部方法
         } else {
           i = range.endIdx;
@@ -897,46 +959,71 @@ function parseRust(lines) {
 
 /**
  * 解析 Java / C / C++ / C# 文件
+ * — 为什么这么写 —
+ * 1. 使用 classStack 栈而非单变量记录类边界：Java 业务类常含内部类（如 private static class），
+ *    单变量会被内部类覆写，导致出内部类后外层类剩余的所有方法全部丢失。
+ * 2. 方法正则允许返回类型与泛型中包含 `.`、`,`、`?`（如 Result.Obj<T>、Map<String, Object>、Result<?>），
+ *    同时剔除行内前导注解（如 @Override）并排除 `(` 前含 `=` 的字段赋值，防止误判匿名内部类。
  */
 function parseCFamily(lines) {
   const analyzed = preprocessBraceLines(lines, 'c');
   const items = [];
-  let classEnd = -1;
-  let classDepth = -1;
+  const classStack = [];
 
   for (let i = 0; i < analyzed.length; i++) {
     const info = analyzed[i];
     const trimmed = info.clean.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
 
-    if (classEnd !== -1 && i > classEnd) {
-      classEnd = -1;
-      classDepth = -1;
+    while (classStack.length > 0 && i > classStack[classStack.length - 1].endIdx) {
+      classStack.pop();
     }
 
-    const inClass = classEnd !== -1 && i <= classEnd && info.braceStart === classDepth;
+    const currentClass = classStack.length > 0 ? classStack[classStack.length - 1] : null;
+    const inClass = currentClass !== null && info.braceStart === currentClass.bodyDepth;
     if (info.braceStart !== 0 && !inClass) continue;
+
+    // 跳过独立注解行（如 @ApiOperation(...)），但保留带行内简单注解的声明（如 @Override public void foo()）
+    if (trimmed.startsWith('@')) {
+      const withoutLeadingAnnos = trimmed.replace(/^(?:@[A-Za-z_][\w.]*(?:\s*\([^)]*\))?\s+)+/, '');
+      if (!withoutLeadingAnnos || withoutLeadingAnnos === trimmed) continue;
+    }
+
+    const normalized = trimmed.replace(/^(?:@[A-Za-z_][\w.]*(?:\s*\([^)]*\))?\s+)+/, '');
+    if (!normalized) continue;
 
     let kind = null;
     let name = '';
     let m;
 
     if (
-      (m = trimmed.match(
-        /^(?:(?:public|private|protected|internal|abstract|final|static|sealed|partial|export)\s+)*(class|interface|struct|enum|namespace)\s+([A-Za-z_]\w*)/
+      (m = normalized.match(
+        /^(?:(?:public|private|protected|internal|abstract|final|static|sealed|non-sealed|partial|export)\s+)*(class|interface|struct|enum|namespace|record)\s+([A-Za-z_]\w*)/
       ))
     ) {
       kind = m[1];
       name = m[2];
-    } else if (
-      (m = trimmed.match(/^(?:[\w:<>&*\[\]\s]+?\s+)?([A-Za-z_~]\w*)\s*\([^;]*$/))
-    ) {
-      const candidate = m[1];
-      if (!CONTROL_KEYWORDS.has(candidate)) {
-        const rangeProbe = findDeclarationRange(analyzed, i, 'c');
-        if (rangeProbe.hasBlock) {
-          kind = inClass ? 'method' : 'function';
-          name = candidate;
+    } else {
+      const parenIdx = normalized.indexOf('(');
+      const beforeParen = parenIdx !== -1 ? normalized.slice(0, parenIdx) : '';
+      // 排除赋值语句（如 private final Runnable r = new Runnable() {）与纯控制流语句
+      if (parenIdx > 0 && !beforeParen.includes('=')) {
+        const firstWordMatch = normalized.match(/^([A-Za-z_]\w*)\b/);
+        const firstWord = firstWordMatch ? firstWordMatch[1] : '';
+        if (
+          !CONTROL_KEYWORDS.has(firstWord) &&
+          (m = normalized.match(
+            /^(?:[\w.:<>&*,\[\]?\s]+?\s+)?([A-Za-z_~]\w*)\s*\([^;]*$/
+          ))
+        ) {
+          const candidate = m[1];
+          if (!CONTROL_KEYWORDS.has(candidate)) {
+            const rangeProbe = findDeclarationRange(analyzed, i, 'c');
+            if (rangeProbe.hasBlock) {
+              kind = inClass ? 'method' : 'function';
+              name = candidate;
+            }
+          }
         }
       }
     }
@@ -950,15 +1037,21 @@ function parseCFamily(lines) {
         signature,
         startLine: i + 1,
         endLine: range.endIdx + 1,
-        depth: inClass ? 1 : 0,
+        depth: classStack.length,
       });
 
       if (
-        (kind === 'class' || kind === 'interface' || kind === 'struct' || kind === 'namespace') &&
+        (kind === 'class' ||
+          kind === 'interface' ||
+          kind === 'struct' ||
+          kind === 'namespace' ||
+          kind === 'record') &&
         range.hasBlock
       ) {
-        classEnd = range.endIdx;
-        classDepth = info.braceStart + 1;
+        classStack.push({
+          endIdx: range.endIdx,
+          bodyDepth: info.braceStart + 1,
+        });
         i = range.headerEndIdx;
       } else {
         i = range.endIdx;
