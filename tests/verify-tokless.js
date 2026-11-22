@@ -5,7 +5,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync, spawnSync } = require('child_process');
+const { execFileSync, execSync, spawnSync } = require('child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -49,7 +49,14 @@ function testZeroPersonalPathLeak() {
     if (file.endsWith('.zip') || file.endsWith('.png') || file.endsWith('.jpg')) continue;
     const rel = path.relative(REPO_ROOT, file);
     const normalizedRel = rel.replace(/\\/g, '/');
-    if (normalizedRel === 'tests/verify-tokless.js' || normalizedRel === '.tokless-private-denylist') continue;
+    if (
+      normalizedRel === 'tests/verify-tokless.js' ||
+      normalizedRel === '.tokless-private-denylist' ||
+      normalizedRel === 'AGENTS.local.md' ||
+      normalizedRel.endsWith('.local.md')
+    ) {
+      continue;
+    }
     const content = fs.readFileSync(file, 'utf8');
     for (const re of forbiddenPatterns) {
       const m = content.match(re);
@@ -63,6 +70,9 @@ function testZeroPersonalPathLeak() {
     0,
     `Personal username or local machine path leaked in repository:\n${violations.join('\n')}`
   );
+  const packOut = execSync('npm pack --dry-run --json', { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const packedPaths = (JSON.parse(packOut.slice(packOut.indexOf('[')))[0]?.files || []).map((f) => f.path);
+  assert(packedPaths.length > 0 && !packedPaths.some((p) => p === 'AGENTS.local.md' || p.endsWith('.local.md') || p === '.tokless-private-denylist'));
   console.log('  [PASS] 1. Zero personal username or local machine path leaks across repository');
 }
 
