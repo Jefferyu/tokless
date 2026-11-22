@@ -9,19 +9,23 @@ const { parseCliArgs, runInstall, runUninstall } = require('../install');
 const REPO_ROOT = path.resolve(__dirname, '..');
 
 function printHelp() {
-  console.log(`tokless v${pkg.version} - AST codebase skeletonizer, blind-read guard & session token auditor
+  console.log(`tokless v${pkg.version} - AST codebase skeletonizer, optional blind-read guard & session token auditor
 
 Usage:
-  tokless install [--target agy|claude|codex|all] [--copy]
+  tokless install [--target agy|claude|codex|all] [--with-guard] [--copy]
   tokless uninstall [--target agy|claude|codex|all]
   tokless skeleton <file-or-dir> [--depth <N>] [--map] [--json]
   tokless audit <session|compare|project> [args...] [--json]
   tokless --version | -v
   tokless --help | -h
 
+Install Options:
+  --with-guard   Opt-in PreToolUse hook (>800-line unsliced blind-read skeleton navigator; disabled by default)
+  --copy         Copy files instead of linking (auto-enabled in _npx / node_modules)
+
 Targets:
   agy      Antigravity (~/.gemini/config/plugins/agy-tokless)
-  claude   Claude Code (~/.claude/tokless + skills + settings.json PreToolUse Read hook)
+  claude   Claude Code (~/.claude/tokless + skills; optional settings.json PreToolUse Read hook via --with-guard)
   codex    Codex CLI (~/.codex/skills/code-skeleton)
   all      Install/uninstall across all supported targets
   (omit)   Auto-install Antigravity + any detected ~/.claude or ~/.codex host`);
@@ -62,6 +66,7 @@ function main() {
         sourceDir: REPO_ROOT,
         target: parsed.target,
         copy: parsed.copy,
+        withGuard: parsed.withGuard,
         mode: 'auto',
       });
     } catch (err) {

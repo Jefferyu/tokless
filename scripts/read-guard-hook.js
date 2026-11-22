@@ -39,9 +39,9 @@ function getMaxLinesThreshold(overrideVal) {
     }
   }
   const raw = process.env.TOKLESS_READ_MAX_LINES || process.env.AGY_READ_MAX_LINES;
-  if (!raw) return 200;
+  if (!raw) return 800;
   const parsed = parseInt(raw, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 200;
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 800;
 }
 
 function parseLineArg(val) {
@@ -140,13 +140,12 @@ function evaluateReadGuard(payloadOrJson, options = {}) {
 
     const hasStart = startNum !== null;
     const hasEnd = endNum !== null;
-    const maxLines = getMaxLinesThreshold(options.maxLines);
-
-    // 陷阱: 严禁设 300 行死跨度硬拦截（会导致报错重试+拆轮倒贴数十万 Cache Read）；正常局部行号切片直接放行，仅核查盲读与 1~EOF 假切片
-    if (hasStart && startNum > 2) {
+    // 陷阱: 凡传入了显式行号参数一律直接放行（禁设单次跨度上限或拦截 L1~EOF，避免报错重试+拆轮反噬数十万 Cache Read）
+    if (hasStart || hasEnd) {
       return { decision: 'allow', host };
     }
 
+    const maxLines = getMaxLinesThreshold(options.maxLines);
     const generateFileSkeleton = loadSkeletonGenerator();
     const skeleton = generateFileSkeleton(resolvedPath, { includeHeader: false });
 
@@ -158,28 +157,12 @@ function evaluateReadGuard(payloadOrJson, options = {}) {
       ? '重新调用 Read 并传入目标区间的 offset 与 limit'
       : '重新调用 read_file 并传入目标区间的 StartLine 和 EndLine';
 
-    if (!hasStart && !hasEnd) {
-      const reason =
-        `[tokless 省流护栏] 目标文件共 ${skeleton.totalLines} 行（超过 ${maxLines} 行全量读取阈值），已拦截盲目全量读取以保护上下文额度。\n` +
-        `请根据下方该文件的语法骨架与 [L起-L止] 行号范围，${rangeHint}精准读取所需片段：\n\n` +
-        `${skeleton.formatted}`;
+    const reason =
+      `[tokless 省流护栏] 目标文件共 ${skeleton.totalLines} 行（超过 ${maxLines} 行无行号读取阈值），已返回语法骨架辅助定位。\n` +
+      `请根据下方该文件的语法骨架与 [L起-L止] 行号范围，${rangeHint}精准读取所需片段：\n\n` +
+      `${skeleton.formatted}`;
 
-      return { decision: 'deny', reason, host };
-    }
-
-    const effectiveStart = hasStart ? Math.max(1, startNum) : 1;
-    const requestedEnd = hasEnd ? endNum : skeleton.totalLines;
-
-    if (effectiveStart <= 2 && requestedEnd >= skeleton.totalLines - 2) {
-      const reason =
-        `[tokless 省流护栏] 目标文件共 ${skeleton.totalLines} 行，检测到 L${effectiveStart}-L${requestedEnd} 覆盖全文首尾的假切片全读，已拦截以保护上下文额度。\n` +
-        `请根据下方该文件的语法骨架与 [L起-L止] 行号范围，${rangeHint}精准读取真实需要的函数或逻辑块：\n\n` +
-        `${skeleton.formatted}`;
-
-      return { decision: 'deny', reason, host };
-    }
-
-    return { decision: 'allow', host };
+    return { decision: 'deny', reason, host };
   } catch (_) {
     return { decision: 'allow', host: 'antigravity' };
   }

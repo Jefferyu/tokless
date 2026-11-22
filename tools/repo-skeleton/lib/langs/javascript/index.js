@@ -59,6 +59,136 @@ function findIifeRange(analyzed, startIdx) {
   return null;
 }
 
+function parseTestCallBlock(analyzed, startIdx) {
+  const startClean = analyzed[startIdx].clean;
+  const trimmed = startClean.trim();
+  const m = trimmed.match(
+    /^(?:await\s+)?(describe|test|it)((?:\.(?:only|skip|concurrent|serial|sequential))*)\s*\(/
+  );
+  if (!m) return null;
+
+  const baseFn = m[1];
+  const callee = baseFn + (m[2] || '');
+  const openParenCol = startClean.indexOf('(', startClean.indexOf(baseFn));
+  if (openParenCol === -1) return null;
+
+  let relParen = 0;
+  let relBracket = 0;
+  let relBrace = 0;
+  let firstCommaLine = -1;
+  let firstCommaCol = -1;
+  let paramCleanSinceSep = '';
+  let bodyOpenLine = -1;
+  let bodyDepth = -1;
+  let callEndLine = -1;
+
+  for (let j = startIdx; j < analyzed.length; j++) {
+    const cleanLine = analyzed[j].clean;
+    const kStart = j === startIdx ? openParenCol : 0;
+    let curBraceDepth = analyzed[j].braceStart;
+    if (j === startIdx) {
+      for (let p = 0; p < kStart; p++) {
+        if (cleanLine[p] === '{') curBraceDepth++;
+        else if (cleanLine[p] === '}') curBraceDepth = Math.max(0, curBraceDepth - 1);
+      }
+    }
+
+    for (let k = kStart; k < cleanLine.length; k++) {
+      const ch = cleanLine[k];
+      if (ch === '{') curBraceDepth++;
+      else if (ch === '}') curBraceDepth = Math.max(0, curBraceDepth - 1);
+
+      if (j === startIdx && k === openParenCol) {
+        relParen = 1;
+        continue;
+      }
+
+      if (ch === '(') {
+        relParen++;
+        if (relParen === 2 && relBracket === 0 && relBrace === 0) {
+          paramCleanSinceSep += '(';
+        }
+      } else if (ch === ')') {
+        relParen--;
+        if (relParen === 0) {
+          callEndLine = j;
+          break;
+        }
+        if (relParen === 1 && relBracket === 0 && relBrace === 0) {
+          paramCleanSinceSep += ')';
+        }
+      } else if (ch === '[') {
+        relBracket++;
+      } else if (ch === ']') {
+        relBracket = Math.max(0, relBracket - 1);
+      } else if (ch === '{') {
+        if (relParen === 1 && relBracket === 0 && relBrace === 0 && bodyOpenLine === -1) {
+          const prev = paramCleanSinceSep.trim();
+          if (/=>\s*$/.test(prev) || /^(?:async\s+)?function\b/.test(prev)) {
+            bodyOpenLine = j;
+            bodyDepth = curBraceDepth;
+          }
+        }
+        relBrace++;
+      } else if (ch === '}') {
+        relBrace = Math.max(0, relBrace - 1);
+      } else if (ch === ',' && relParen === 1 && relBracket === 0 && relBrace === 0) {
+        if (firstCommaLine === -1) {
+          firstCommaLine = j;
+          firstCommaCol = k;
+        }
+        paramCleanSinceSep = '';
+      } else if (relParen === 1 && relBracket === 0 && relBrace === 0) {
+        paramCleanSinceSep += ch;
+      }
+    }
+
+    if (callEndLine !== -1) break;
+  }
+
+  if (callEndLine === -1 || bodyOpenLine === -1 || firstCommaLine === -1) {
+    return null;
+  }
+
+  const rawArgChunks = [];
+  for (let j = startIdx; j <= firstCommaLine; j++) {
+    const rawLine = analyzed[j].raw;
+    const from = j === startIdx ? openParenCol + 1 : 0;
+    const to = j === firstCommaLine ? firstCommaCol : rawLine.length;
+    rawArgChunks.push(rawLine.slice(from, to));
+  }
+  const firstArgText = rawArgChunks.join(' ').replace(/\s+/g, ' ').trim();
+  if (!firstArgText) return null;
+
+  let label = firstArgText;
+  if (
+    (label.startsWith("'") && label.endsWith("'") && label.length >= 2) ||
+    (label.startsWith('"') && label.endsWith('"') && label.length >= 2) ||
+    (label.startsWith('`') && label.endsWith('`') && label.length >= 2)
+  ) {
+    label = label.slice(1, -1);
+  }
+
+  let displayArg = firstArgText;
+  if (displayArg.length > 110) {
+    const q = displayArg[0];
+    if (q === "'" || q === '"' || q === '`') {
+      displayArg = displayArg.slice(0, 106) + '...' + q;
+    } else {
+      displayArg = displayArg.slice(0, 107) + '...';
+    }
+  }
+
+  return {
+    kind: baseFn === 'describe' ? 'suite' : 'test',
+    name: label,
+    signature: `${callee}(${displayArg})`,
+    headerEndIdx: bodyOpenLine,
+    endIdx: callEndLine,
+    bodyDepth,
+  };
+}
+
 function parse(lines, ext = '.js', options = {}) {
   if (ext && typeof ext === 'object') {
     options = ext;
@@ -71,6 +201,7 @@ function parse(lines, ext = '.js', options = {}) {
   const analyzed = preprocessBraceLines(lines, 'js');
   const items = [];
   const classStack = [];
+  const suiteStack = [];
   let activeIifeEnd = -1;
   let activeIifeBodyDepth = -1;
 
@@ -82,12 +213,20 @@ function parse(lines, ext = '.js', options = {}) {
     while (classStack.length > 0 && i > classStack[classStack.length - 1].endIdx) {
       classStack.pop();
     }
+    while (suiteStack.length > 0 && i > suiteStack[suiteStack.length - 1].endIdx) {
+      suiteStack.pop();
+    }
     if (activeIifeEnd !== -1 && i > activeIifeEnd) {
       activeIifeEnd = -1;
       activeIifeBodyDepth = -1;
     }
 
-    if (info.braceStart === 0 && activeIifeEnd === -1 && classStack.length === 0) {
+    if (
+      info.braceStart === 0 &&
+      activeIifeEnd === -1 &&
+      classStack.length === 0 &&
+      suiteStack.length === 0
+    ) {
       const iife = findIifeRange(analyzed, i);
       if (iife) {
         activeIifeEnd = iife.endIdx;
@@ -99,13 +238,37 @@ function parse(lines, ext = '.js', options = {}) {
 
     const topScopeDepth =
       activeIifeEnd !== -1 && i <= activeIifeEnd ? activeIifeBodyDepth : 0;
+    const currentSuite = suiteStack.length > 0 ? suiteStack[suiteStack.length - 1] : null;
+    const activeScopeDepth = currentSuite !== null ? currentSuite.bodyDepth : topScopeDepth;
     const currentClass = classStack.length > 0 ? classStack[classStack.length - 1] : null;
     const inClassBody =
       currentClass !== null &&
       i <= currentClass.endIdx &&
       info.braceStart === currentClass.bodyDepth;
 
-    if (info.braceStart === topScopeDepth && !inClassBody) {
+    if (info.braceStart === activeScopeDepth && !inClassBody) {
+      const testBlock = parseTestCallBlock(analyzed, i);
+      if (testBlock) {
+        items.push({
+          kind: testBlock.kind,
+          name: testBlock.name,
+          signature: testBlock.signature,
+          startLine: i + 1 + lineOffset,
+          endLine: testBlock.endIdx + 1 + lineOffset,
+          depth: suiteStack.length,
+        });
+        if (testBlock.kind === 'suite' && testBlock.headerEndIdx < testBlock.endIdx) {
+          suiteStack.push({
+            endIdx: testBlock.endIdx,
+            bodyDepth: testBlock.bodyDepth,
+          });
+          i = testBlock.headerEndIdx;
+        } else {
+          i = testBlock.endIdx;
+        }
+        continue;
+      }
+
       let kind = null;
       let name = '';
       let m;
@@ -217,7 +380,7 @@ function parse(lines, ext = '.js', options = {}) {
           signature,
           startLine: i + 1 + lineOffset,
           endLine: range.endIdx + 1 + lineOffset,
-          depth: 0,
+          depth: suiteStack.length,
         });
 
         if (kind === 'class' && range.hasBlock) {
@@ -268,7 +431,7 @@ function parse(lines, ext = '.js', options = {}) {
               signature,
               startLine: i + 1 + lineOffset,
               endLine: range.endIdx + 1 + lineOffset,
-              depth: classStack.length,
+              depth: suiteStack.length + classStack.length,
             });
             i = range.endIdx;
             continue;

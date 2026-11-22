@@ -12,7 +12,7 @@
 
 **Zero-dependency token optimizer for AI coding agents (Google Antigravity, Claude Code, Codex CLI, and extensible via `targets/`).**
 
-`tokless` cuts runaway prompt-cache snowballing without sacrificing code quality by combining sub-100ms `[Lstart-Lend]` AST-like code skeleton navigation, native `PreToolUse` blind-read brakes, MCP-stripped subagents, and 0-token local session billing/compaction audits.
+`tokless` cuts runaway prompt-cache snowballing without sacrificing code quality by combining sub-100ms `[Lstart-Lend]` AST-like code skeleton navigation, an opt-in `--with-guard` `PreToolUse` blind-read navigator, MCP-stripped subagents, and 0-token local session billing/compaction audits.
 
 In a controlled A/B bug-hunt and fix benchmark on a production Tauri + Rust + React desktop codebase, `tokless` reduced **total token throughput by 53.2% (-11.38M tokens)**, cut **cumulative Cache Read tokens by 53.8% (-11.23M tokens)**, and finished in **34.4% fewer model turns** while finding and fixing the exact same **7 deep concurrency/logic bugs** (*Note: this A/B benchmark was recorded on early `v0.1.0` with only the baseline skeletonizer and unsliced blind-read block; we have not yet re-run a full long-horizon comparison on newer releases, which add MCP-stripped lean subagents and refined line-range pass-through for even stronger theoretical savings*).
 
@@ -22,17 +22,18 @@ In a controlled A/B bug-hunt and fix benchmark on a production Tauri + Rust + Re
 
 ### Option 1: One-Line CLI Setup (Recommended)
 
-Auto-detects and installs into Google Antigravity, Claude Code (`~/.claude`), and Codex CLI (`~/.codex`). When invoked via `npx`, `tokless` automatically switches to file-copy mode so hooks never break after npm cache cleanup:
+Auto-detects and installs into Google Antigravity, Claude Code (`~/.claude`), and Codex CLI (`~/.codex`). By default, `tokless` installs skills, rules, and lean subagents **without mounting the `PreToolUse` child-process hook** (and re-running default install automatically removes any previously mounted stale hook). When invoked via `npx`, `tokless` automatically switches to file-copy mode so assets never break after npm cache cleanup:
 
 ```bash
 npx tokless install
 ```
 
-Target specific hosts or cleanly uninstall anytime:
+Opt in to the `PreToolUse` guard (`>800`-line unsliced blind-read navigator), target specific hosts, or cleanly uninstall anytime:
 
 ```bash
+npx tokless install --with-guard       # Opt-in PreToolUse hook (returns skeleton only on unsliced reads >800 lines)
 npx tokless install --target agy       # Google Antigravity only
-npx tokless install --target claude    # Non-destructively merge into ~/.claude/settings.json + skills
+npx tokless install --target claude    # Claude Code ~/.claude/tokless + skills (add --with-guard to merge settings.json hook)
 npx tokless install --target codex     # Install ~/.codex/skills/code-skeleton
 npx tokless install --target all       # Install across all supported hosts
 npx tokless uninstall --target all     # Cleanly remove hooks/skills and restore original settings
@@ -43,7 +44,7 @@ npx tokless uninstall --target all     # Cleanly remove hooks/skills and restore
 Drop this directly into Antigravity or Claude Code and let the agent wire itself up:
 
 ```text
-Please run `npx tokless install` to enable tokless (or clone https://github.com/daoif/tokless and run `node install.js`), then verify that the read-guard hook and skills are active.
+Please run `npx tokless install` to enable tokless (or clone https://github.com/daoif/tokless and run `node install.js`), then verify that the skills and rules are active.
 ```
 
 ---
@@ -57,7 +58,7 @@ A common question from heavy AI coding users: *"My IDE already has `@Codebase` s
 - **The Cache Read Snowball:** In multi-step agent loops, `Cumulative Cache Read ≈ Average Context Size × Model Turns`. Dumping 30K tokens of irrelevant code on step 3 across a 50-turn task charges you 47 times—over **1.4M wasted Cache Read tokens** from a single lazy read.
 - **Compaction Thresholds:** Generation-3 models commonly trigger forced context compaction around **256K tokens** (`CHECKPOINT: # Resuming from a compaction`, collapsing context into a lossy summary), while Generation-4 models have been observed running past 440K without compacting (widely estimated around **512K**). Regardless of where the ceiling sits, keeping per-turn context lean and cutting redundant turns directly determines how fast your quota drains.
 
-`tokless` works alongside `@Codebase`: once the agent knows which directory or file to inspect, `tokless` generates `[Lstart-Lend]` function/class maps in ~80ms with zero pre-indexing, and its `PreToolUse` hook blocks un-sliced reads over 200 lines (returning the file's skeleton inline so the agent immediately re-reads the exact line range).
+`tokless` works alongside `@Codebase`: once the agent knows which directory or file to inspect, `tokless` generates `[Lstart-Lend]` function/class/test maps in ~80ms with zero pre-indexing, and its optional `--with-guard` `PreToolUse` hook intercepts unsliced blind reads over 800 lines (returning the file's skeleton inline while allowing any explicit line-range read).
 
 ---
 
@@ -81,21 +82,21 @@ Two isolated Git worktrees from the same commit (`3908815`), running the exact s
 
 ---
 
-## Four Core Capabilities & Platform Boundaries (v0.5.0)
+## Four Core Capabilities & Platform Boundaries (v0.5.1)
 
 `tokless` draws a transparent line between **universal capabilities that work with every AI coding tool** and **host-specific hooks or log parsers**:
 
-| Host Agent | 1. `tokless skeleton` + `AGENTS.md` Rules | 2. `PreToolUse` Blind-Read Guard | 3. Lean Subagents (`inheritMcp: false`) | 4. `tokless audit` Inspector |
+| Host Agent | 1. `tokless skeleton` + `AGENTS.md` Rules | 2. `PreToolUse` Blind-Read Guard (`--with-guard` Opt-In) | 3. Lean Subagents (`inheritMcp: false`) | 4. `tokless audit` Inspector |
 | :--- | :---: | :---: | :---: | :---: |
-| **Platform Scope** | **100% Universal across all AI coding tools** | **Extensible hook (Native on Antigravity & Claude Code)** | **Antigravity Plugin Only** | **`audit project` Universal; `session / compare` Antigravity Only** |
-| **Google Antigravity** | Native Skill + CLI + `rules/AGENTS.md` | Native `hooks.json` (`read_file` / `view_file`) | `tokless-coder` / `tokless-reviewer` | Full (`project` + `session` / `compare`) |
-| **Claude Code** | `~/.claude/skills` + CLI | Merged `~/.claude/settings.json` (`Read`) | — | `audit project` (rules & MCP tax) |
+| **Platform Scope** | **100% Universal across all AI coding tools** | **Disabled by default; opt-in via `--with-guard` (Antigravity & Claude Code)** | **Antigravity Plugin Only** | **`audit project` Universal; `session / compare` Antigravity Only** |
+| **Google Antigravity** | Native Skill + CLI + `rules/AGENTS.md` | Optional `hooks.json` (`read_file` / `view_file`) | `tokless-coder` / `tokless-reviewer` | Full (`project` + `session` / `compare`) |
+| **Claude Code** | `~/.claude/skills` + CLI | Optional merged `~/.claude/settings.json` (`Read`) | — | `audit project` (rules & MCP tax) |
 | **Codex CLI** | `~/.codex/skills` + CLI + `AGENTS.md` | — | — | `audit project` (rules density) |
 | **Other Agents** (Cursor / Windsurf / Cline / Roo Code / Trae / OpenCode, etc.) | `npm i -g tokless` + root `AGENTS.md` (Ready Today) | PRs welcome via `targets/` (see `claude-code.js`) | — | `audit project` (rules density) |
 
 ### 1. `tokless skeleton` (alias `repo-skeleton`) + `rules/AGENTS.md` — [100% Universal]
 
-Zero pre-indexing, pure Node.js standard library. Extracts class/function signatures and exact **`[Lstart-Lend]` line ranges** across `.js/.jsx/.ts/.tsx/.vue/.svelte/.py/.go/.rs/.java/.kt/.c/.cpp/.cs/.md` in milliseconds (lazy-loading only the scanned language parser), cutting exploration tokens by **85%~97%** when paired with [`rules/AGENTS.md`](./rules/AGENTS.md):
+Zero pre-indexing, pure Node.js standard library. Extracts class/function signatures, JS/TS test suites (`describe`/`test`/`it`), and exact **`[Lstart-Lend]` line ranges** across `.js/.jsx/.ts/.tsx/.vue/.svelte/.py/.go/.rs/.java/.kt/.c/.cpp/.cs/.md` in milliseconds (lazy-loading only the scanned language parser), cutting exploration tokens by **85%~97%** when paired with [`rules/AGENTS.md`](./rules/AGENTS.md):
 
 ```bash
 npx tokless skeleton . --map
@@ -103,9 +104,9 @@ npx tokless skeleton ./src --depth 2
 npx tokless skeleton ./src/App.tsx --json
 ```
 
-### 2. `PreToolUse` Blind-Read Brake (`scripts/read-guard-hook.js`) — [Extensible Hook · Native on Antigravity & Claude Code]
+### 2. Optional `PreToolUse` Blind-Read Navigator (`scripts/read-guard-hook.js`) — [Disabled by Default · Opt-In via `--with-guard`]
 
-Only intercepts blind full-file reads (`> 200` lines, configurable via `TOKLESS_READ_MAX_LINES`) and fake `1..EOF` slices, returning the file's `[Lstart-Lend]` skeleton inline. Once explicit line numbers are supplied, any function span—whether 50 or 500 lines—is allowed in a single read so agents never burn extra turns reading fragments.
+`npx tokless install` omits `PreToolUse` hooks by default (zero child-process latency on file reads, and re-running default install cleans up any previously mounted stale hook). Pass `--with-guard` when you want strict guardrails: the default threshold aligns with `800` lines (configurable via `TOKLESS_READ_MAX_LINES`), **intercepting only completely unsliced blind reads over 800 lines** to return the file's `[Lstart-Lend]` skeleton inline, while **100% allowing any read that supplies explicit line numbers (including `L1..EOF`)**.
 
 ### 3. MCP-Stripped Lean Subagents (`agents/`) — [Antigravity Plugin Only]
 
@@ -133,11 +134,11 @@ npx tokless audit compare <before-id> <after-id>
 ### 1. Built-in One-Command Targets (`npx tokless install`)
 
 - **Google Antigravity** (`--target agy`):
-  - **Installed to**: `~/.gemini/config/plugins/agy-tokless/` (`plugin.json`, `hooks.json`, `rules/AGENTS.md`, `skills/`, `agents/`).
-  - **How it triggers**: Active automatically in new sessions—`PreToolUse` blocks blind reads on large files, `code-skeleton` guides ranged reads, `tokless-coder` / `tokless-reviewer` run without MCP tax, and `token-audit` / `npx tokless audit session <id>` inspects session bills.
+  - **Installed to**: `~/.gemini/config/plugins/agy-tokless/` (`plugin.json`, `rules/AGENTS.md`, `skills/`, `agents/`; plus `hooks.json` when `--with-guard` is passed).
+  - **How it triggers**: Active automatically in new sessions—`code-skeleton` guides ranged reads (with optional `--with-guard` returning skeletons on unsliced reads `>800` lines), `tokless-coder` / `tokless-reviewer` run without MCP tax, and `token-audit` / `npx tokless audit session <id>` inspects session bills.
 - **Claude Code** (`--target claude`):
-  - **Installed to**: Core runtime in `~/.claude/tokless/`, skill in `~/.claude/skills/code-skeleton/SKILL.md`, and non-destructively merged `PreToolUse` (`Read`) hook in `~/.claude/settings.json` (preserves your existing permissions and custom hooks; cleanly restored on uninstall).
-  - **How it triggers**: Active automatically whenever you launch `claude`—un-sliced `Read` calls over 200 lines are intercepted with an inline `[Lstart-Lend]` map so Claude immediately re-reads the exact target lines.
+  - **Installed to**: Core runtime in `~/.claude/tokless/`, skill in `~/.claude/skills/code-skeleton/SKILL.md`, and—when `--with-guard` is passed—a non-destructively merged `PreToolUse` (`Read`) hook in `~/.claude/settings.json` (omitted by default, and stale hooks are automatically removed on default re-install while preserving custom hooks).
+  - **How it triggers**: Claude discovers `code-skeleton` automatically; if `--with-guard` is enabled, unsliced `Read` calls over 800 lines receive an inline `[Lstart-Lend]` map so Claude re-reads the exact target lines.
 - **Codex CLI** (`--target codex`):
   - **Installed to**: `~/.codex/skills/code-skeleton/` (`SKILL.md` + bundled `tools/repo-skeleton`).
   - **How it triggers**: Codex discovers the `code-skeleton` skill automatically; copy [`rules/AGENTS.md`](./rules/AGENTS.md) into your repo root `AGENTS.md` for consistent proactive triggering.

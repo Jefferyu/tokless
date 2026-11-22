@@ -180,3 +180,48 @@ test('Vue SFC (.vue) delegates <script lang="ts"> to javascript parser with shif
     ]);
   });
 });
+
+test('extracts top-level and nested describe/test/it blocks with [Lstart-Lend] ranges while ignoring non-block calls', () => {
+  const testSuiteCode = [
+    'function buildFixture() {',
+    '  return { ready: true };',
+    '}',
+    '',
+    'test.todo("pending feature without block");',
+    '',
+    'describe("AuthService", () => {',
+    '  function makeToken() {',
+    '    return "tok";',
+    '  }',
+    '',
+    '  it("signs payload cleanly", () => {',
+    '    const tok = makeToken();',
+    '    return Boolean(tok);',
+    '  });',
+    '',
+    '  describe.only("expiration", function () {',
+    '    test(',
+    '      "rejects expired token",',
+    '      { timeout: 1000 },',
+    '      async () => {',
+    '        return buildFixture();',
+    '      }',
+    '    );',
+    '  });',
+    '});',
+  ].join('\n');
+
+  withTempSkeleton('auth.test.js', testSuiteCode, (res) => {
+    const summary = res.items.map(
+      (it) => `${it.kind}:${it.signature}:L${it.startLine}-L${it.endLine}:d${it.depth}`
+    );
+    assert.deepEqual(summary, [
+      'function:function buildFixture():L1-L3:d0',
+      'suite:describe("AuthService"):L7-L26:d0',
+      'function:function makeToken():L8-L10:d1',
+      'test:it("signs payload cleanly"):L12-L15:d1',
+      'suite:describe.only("expiration"):L17-L25:d1',
+      'test:test("rejects expired token"):L18-L24:d2',
+    ]);
+  });
+});

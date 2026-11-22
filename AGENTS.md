@@ -9,7 +9,7 @@
 ## 2. 目录职责边界
 
 - `tools/repo-skeleton/` & `lib/skeleton.js`: 多语言类名/函数签名与 `[L起-L止]` 行号骨架提取器 (兼容 `repo-skeleton`)，含 `lib/core/` 词法/括号平衡核心与 `lib/langs/<lang>/` 按语言目录惰性解析器。
-- `scripts/read-guard-hook.js` & `lib/read-guard.js`: 可扩展 `PreToolUse` 防盲读钩子 (拦截无行号盲读 >200 行源码及 `1~EOF` 假切片并内联返回骨架；明确行号切片放行，禁设死板单次行数上限)。
+- `scripts/read-guard-hook.js` & `lib/read-guard.js`: 可选 `PreToolUse` 盲读导航钩子 (默认关闭，`--with-guard` 启用；仅对 >800 行无行号盲读返回骨架，传行号一律放行)。
 - `targets/`: 单文件宿主挂载层 (`index.js` 注册表、`shared.js` 跨平台拷贝/路径工具、`antigravity.js`、`claude-code.js`、`codex.js`)。
 - `rules/AGENTS.md`、`skills/*`、`agents/*`: 用户省流规则模板、POSIX/PowerShell 双端技能文档与 Antigravity `inheritMcp: false` 净身角色。
 - `tools/agy-audit/` & `lib/audit.js`: 通用 `audit project` 规则密度/MCP 底座税体检，及 Antigravity 会话账单、Prefix Cache 断层与压缩节点审计。

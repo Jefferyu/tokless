@@ -1,6 +1,6 @@
 ---
 name: code-skeleton
-description: 提取代码文件或目录的紧凑语法骨架（仅保留类名、函数签名、导出接口与精确 [L起-L止] 行号，剥离具体实现代码）。在探索代码库、排查 Bug 或读取超过 200 行的大文件前使用此技能快速定位行号，可减少 85%~97% 的探索期 Token 消耗。
+description: 提取代码文件或目录的紧凑语法骨架（仅保留类名、函数签名、导出接口与精确 [L起-L止] 行号，剥离具体实现代码）。在探索代码库、排查 Bug 或读取中大型文件前使用此技能快速定位行号，可减少 85%~97% 的探索期 Token 消耗。
 ---
 
 # 代码骨架极速提取指南 (code-skeleton)
@@ -31,4 +31,4 @@ node "$env:USERPROFILE\.gemini\config\plugins\agy-tokless\tools\repo-skeleton\cl
 node "$env:USERPROFILE\.gemini\config\plugins\agy-tokless\tools\repo-skeleton\cli.js" <文件路径>
 ```
 
-拿到目标函数的 `[L起-L止]` 行号后，直接调用 `read_file(Path, StartLine, EndLine)`（或 Claude Code `Read(file_path, offset, limit)`）按需完整读取对应代码段（无单次行数跨度限制，严禁不带行号盲读或传 `1~EOF` 假切片）。
+拿到目标函数的 `[L起-L止]` 行号后，直接调用 `read_file(Path, StartLine, EndLine)`（或 Claude Code `Read(file_path, offset, limit)`）按需完整读取对应代码段（无单次行数跨度限制，凡传入显式行号一律放行；若启用 `--with-guard` 护栏，仅对 `>800` 行无行号盲读返回全文骨架辅助导航）。

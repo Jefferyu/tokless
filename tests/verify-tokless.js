@@ -240,14 +240,32 @@ function testRepoSkeletonAndReadGuardHook(tmpDir) {
   assert(cliHelpOut.includes('--map'));
 
   const hookScript = path.join(REPO_ROOT, 'scripts', 'read-guard-hook.js');
+  const mediumJs = path.join(tmpDir, 'medium-750.js');
+  const mediumLines = [];
+  for (let i = 1; i <= 750; i++) {
+    mediumLines.push(i === 10 ? 'function withinLimit() { return 1; }' : `const m${i} = ${i};`);
+  }
+  fs.writeFileSync(mediumJs, mediumLines.join('\n'), 'utf8');
+
   const bigJs = path.join(tmpDir, 'big.js');
   const bigLines = [];
-  for (let i = 1; i <= 520; i++) {
+  for (let i = 1; i <= 900; i++) {
     bigLines.push(i === 10 ? 'function alpha() { return 1; }' : `const v${i} = ${i};`);
   }
   fs.writeFileSync(bigJs, bigLines.join('\n'), 'utf8');
 
-  // 1) Blind read of >200-line file MUST deny with skeleton
+  // 0) Blind read of <=800-line file MUST allow by default
+  const mediumBlindRes = spawnSync(
+    process.execPath,
+    [hookScript],
+    {
+      input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: mediumJs } } }),
+      encoding: 'utf8'
+    }
+  );
+  assert.strictEqual(JSON.parse(mediumBlindRes.stdout.trim()).decision, 'allow');
+
+  // 1) Unsliced blind read of >800-line file MUST deny with skeleton navigation
   const blindRes = spawnSync(
     process.execPath,
     [hookScript],
@@ -260,7 +278,7 @@ function testRepoSkeletonAndReadGuardHook(tmpDir) {
   assert.strictEqual(blindJson.decision, 'deny');
   assert(blindJson.reason.includes('function alpha()'));
 
-  // 2) Ranged read of 450 lines (e.g. L20-L470) MUST 100% allow (300-line hard cap abolished!)
+  // 2) Ranged read of 450 lines (e.g. L20-L470) MUST 100% allow
   const ranged450Res = spawnSync(
     process.execPath,
     [hookScript],
@@ -272,31 +290,29 @@ function testRepoSkeletonAndReadGuardHook(tmpDir) {
   const ranged450Json = JSON.parse(ranged450Res.stdout.trim());
   assert.strictEqual(ranged450Json.decision, 'allow');
 
-  // 3) Ranged read from L1-L450 on a 520-line file MUST also allow (not covering EOF)
-  const top450Res = spawnSync(
+  // 3) Explicit full-file line range (e.g. L1-L900 on a 900-line file) MUST 100% allow (fake-slice block abolished!)
+  const explicitFullRes = spawnSync(
     process.execPath,
     [hookScript],
     {
-      input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: bigJs, StartLine: 1, EndLine: 450 } } }),
+      input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: bigJs, StartLine: 1, EndLine: 900 } } }),
       encoding: 'utf8'
     }
   );
-  assert.strictEqual(JSON.parse(top450Res.stdout.trim()).decision, 'allow');
+  assert.strictEqual(JSON.parse(explicitFullRes.stdout.trim()).decision, 'allow');
 
-  // 4) Fake full-file slice (startLine <= 2 && requestedEnd >= totalLines - 2) MUST deny
-  const fakeSliceRes = spawnSync(
+  // 4) Single-sided line parameter (StartLine only or EndLine only) MUST also allow
+  const startOnlyRes = spawnSync(
     process.execPath,
     [hookScript],
     {
-      input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: bigJs, StartLine: 1, EndLine: 520 } } }),
+      input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: bigJs, StartLine: 1 } } }),
       encoding: 'utf8'
     }
   );
-  const fakeSliceJson = JSON.parse(fakeSliceRes.stdout.trim());
-  assert.strictEqual(fakeSliceJson.decision, 'deny');
-  assert(fakeSliceJson.reason.includes('function alpha()'));
+  assert.strictEqual(JSON.parse(startOnlyRes.stdout.trim()).decision, 'allow');
 
-  // 5) Claude Code `Read` PreToolUse hook compatibility (deny blind read + allow ranged offset/limit + deny fake full read)
+  // 5) Claude Code `Read` PreToolUse hook compatibility (deny >800 unsliced blind read + allow any explicit offset/limit including L1-L900)
   const claudeBlindRes = spawnSync(
     process.execPath,
     [hookScript],
@@ -330,34 +346,33 @@ function testRepoSkeletonAndReadGuardHook(tmpDir) {
   const claudeAllowJson = JSON.parse(claudeAllowRes.stdout.trim());
   assert.deepStrictEqual(claudeAllowJson, {});
 
-  const claudeFakeFullRes = spawnSync(
+  const claudeExplicitFullRes = spawnSync(
     process.execPath,
     [hookScript],
     {
       input: JSON.stringify({
         hook_event_name: 'PreToolUse',
         tool_name: 'Read',
-        tool_input: { file_path: bigJs, offset: 1, limit: 520 }
+        tool_input: { file_path: bigJs, offset: 1, limit: 900 }
       }),
       encoding: 'utf8'
     }
   );
-  const claudeFakeFullJson = JSON.parse(claudeFakeFullRes.stdout.trim());
-  assert.strictEqual(claudeFakeFullJson.hookSpecificOutput.permissionDecision, 'deny');
+  assert.deepStrictEqual(JSON.parse(claudeExplicitFullRes.stdout.trim()), {});
 
   // 6) TOKLESS_READ_MAX_LINES env priority over AGY_READ_MAX_LINES
   const envOverrideRes = spawnSync(
     process.execPath,
     [hookScript],
     {
-      env: { ...process.env, TOKLESS_READ_MAX_LINES: '600', AGY_READ_MAX_LINES: '100' },
+      env: { ...process.env, TOKLESS_READ_MAX_LINES: '1000', AGY_READ_MAX_LINES: '100' },
       input: JSON.stringify({ toolCall: { name: 'read_file', args: { Path: bigJs } } }),
       encoding: 'utf8'
     }
   );
   assert.strictEqual(JSON.parse(envOverrideRes.stdout.trim()).decision, 'allow');
 
-  console.log('  [PASS] 3. repo-skeleton & PreToolUse read-guard-hook (AGY + Claude Code Read, 450-line allow, fake-slice deny)');
+  console.log('  [PASS] 3. repo-skeleton & PreToolUse read-guard-hook (800-line default, explicit line range 100% allow)');
 }
 
 function testProgrammaticPackageExports(tmpDir) {
@@ -370,7 +385,7 @@ function testProgrammaticPackageExports(tmpDir) {
   const consumerScript = path.join(consumerDir, 'check-exports.js');
   const bigJs = path.join(tmpDir, 'export-guard-big.js');
   const bigLines = [];
-  for (let i = 1; i <= 500; i++) {
+  for (let i = 1; i <= 860; i++) {
     bigLines.push(i === 15 ? 'function exportedAlpha(x) { return x + 1; }' : `const item${i} = ${i};`);
   }
   fs.writeFileSync(bigJs, bigLines.join('\n'), 'utf8');
@@ -411,7 +426,7 @@ const guardMod = require('tokless/read-guard');
 const pkgJson = require('tokless/package.json');
 
 assert.strictEqual(pkgJson.name, 'tokless');
-assert.strictEqual(pkgJson.version, '0.5.0');
+assert.strictEqual(pkgJson.version, '0.5.1');
 assert.strictEqual(typeof rootPkg.scanFileLightweight, 'function');
 assert(pkgJson.bin && pkgJson.bin.tokless && pkgJson.bin['repo-skeleton'] && pkgJson.bin['agy-audit']);
 assert.deepStrictEqual(Object.keys(pkgJson.bin).sort(), ['agy-audit', 'repo-skeleton', 'tokless']);
@@ -429,8 +444,8 @@ assert.strictEqual(typeof skelMod.generateRepoMap, 'function');
 assert.strictEqual(typeof skelMod.formatDirectoryMap, 'function');
 
 const fileSkel = skelMod.generateFileSkeleton(${JSON.stringify(bigJs)}, { includeHeader: true });
-assert.strictEqual(fileSkel.totalLines, 500);
-assert.strictEqual(fileSkel.lineCount, 500);
+assert.strictEqual(fileSkel.totalLines, 860);
+assert.strictEqual(fileSkel.lineCount, 860);
 assert.strictEqual(fileSkel.charCount, fs.readFileSync(${JSON.stringify(bigJs)}, 'utf8').length);
 assert(fileSkel.formatted.includes('function exportedAlpha(x)'));
 assert(fileSkel.formatted.includes(' 字 | '));
@@ -450,7 +465,7 @@ assert(unifiedDir.text.includes(' 字 | '));
 const repoMap = rootPkg.generateRepoMap(${JSON.stringify(tmpDir)});
 assert.strictEqual(repoMap.mode, 'map');
 assert.strictEqual(repoMap.map, true);
-assert(repoMap.text.includes('export-guard-big.js (500 行 | '));
+assert(repoMap.text.includes('export-guard-big.js (860 行 | '));
 assert(!repoMap.text.includes('function exportedAlpha(x)'));
 
 const mapViaSkel = skelMod.generateSkeleton(${JSON.stringify(tmpDir)}, { map: true });
@@ -484,10 +499,10 @@ const allow450Verdict = guardMod.evaluateReadGuard({
 });
 assert.strictEqual(allow450Verdict.decision, 'allow');
 
-const denyFakeFullVerdict = guardMod.evaluateReadGuard({
-  toolCall: { name: 'read_file', args: { Path: ${JSON.stringify(bigJs)}, StartLine: 2, EndLine: 499 } }
+const allowExplicitFullVerdict = guardMod.evaluateReadGuard({
+  toolCall: { name: 'read_file', args: { Path: ${JSON.stringify(bigJs)}, StartLine: 1, EndLine: 860 } }
 });
-assert.strictEqual(denyFakeFullVerdict.decision, 'deny');
+assert.strictEqual(allowExplicitFullVerdict.decision, 'allow');
 
 const claudeCfg = guardMod.buildClaudePreToolUseHookConfig();
 assert(Array.isArray(claudeCfg.PreToolUse) && claudeCfg.PreToolUse[0].matcher === 'Read');
@@ -534,16 +549,16 @@ function testUnifiedCliAndCrossAgentTargets(tmpDir) {
   assert.strictEqual(shouldForceCopy('/opt/local/repo/tokless', true), true);
 
   const verOut = execFileSync(process.execPath, [cliPath, '--version'], { encoding: 'utf8' }).trim();
-  assert.strictEqual(verOut, '0.5.0');
+  assert.strictEqual(verOut, '0.5.1');
   const pluginManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'plugin.json'), 'utf8'));
-  assert.strictEqual(pluginManifest.version, '0.5.0');
+  assert.strictEqual(pluginManifest.version, '0.5.1');
 
   const helpOut = execFileSync(process.execPath, [cliPath, '--help'], { encoding: 'utf8' });
-  assert(helpOut.includes('tokless install') && helpOut.includes('tokless skeleton') && helpOut.includes('tokless audit'));
+  assert(helpOut.includes('tokless install') && helpOut.includes('--with-guard') && helpOut.includes('tokless skeleton') && helpOut.includes('tokless audit'));
 
   const sampleJs = path.join(tmpDir, 'cli-skel-sample.js');
   const sampleLines = [];
-  for (let i = 1; i <= 240; i++) {
+  for (let i = 1; i <= 840; i++) {
     sampleLines.push(i === 12 ? 'function sampleTargetFn(a, b) { return a + b; }' : `const v${i} = ${i};`);
   }
   fs.writeFileSync(sampleJs, sampleLines.join('\n'), 'utf8');
@@ -551,7 +566,7 @@ function testUnifiedCliAndCrossAgentTargets(tmpDir) {
   const skelJsonRaw = execFileSync(process.execPath, [cliPath, 'skeleton', sampleJs, '--json'], { encoding: 'utf8' });
   const skelJson = JSON.parse(skelJsonRaw);
   assert.strictEqual(skelJson.mode, 'file');
-  assert.strictEqual(skelJson.totalLines, 240);
+  assert.strictEqual(skelJson.totalLines, 840);
   assert(skelJson.formatted.includes('function sampleTargetFn(a, b)'));
 
   const auditSessionJsonl = path.join(tmpDir, 'cli-audit-session.jsonl');
@@ -595,23 +610,20 @@ function testUnifiedCliAndCrossAgentTargets(tmpDir) {
   fs.writeFileSync(claudeSettingsPath, JSON.stringify(existingSettings, null, 2), 'utf8');
 
   const envWithHome = { ...process.env, HOME: isolatedHome, USERPROFILE: isolatedHome };
+  const agyPluginDir = path.join(isolatedHome, '.gemini', 'config', 'plugins', 'agy-tokless');
+  const agyHooksPath = path.join(agyPluginDir, 'hooks.json');
 
+  // 1) Default install MUST NOT mount PreToolUse hooks.json or Claude Read hook
   execFileSync(process.execPath, [cliPath, 'install', '--copy'], {
     env: envWithHome,
     encoding: 'utf8',
     stdio: 'pipe'
   });
 
-  // Idempotent second install should not duplicate tokless PreToolUse hook
-  execFileSync(process.execPath, [cliPath, 'install', '--target', 'claude', '--copy'], {
-    env: envWithHome,
-    encoding: 'utf8',
-    stdio: 'pipe'
-  });
-
-  assert(fs.existsSync(path.join(isolatedHome, '.gemini', 'config', 'plugins', 'agy-tokless', 'plugin.json')));
-  assert(fs.existsSync(path.join(isolatedHome, '.gemini', 'config', 'plugins', 'agy-tokless', 'tools', 'repo-skeleton', 'lib', 'core', 'registry.js')));
-  assert(fs.existsSync(path.join(isolatedHome, '.gemini', 'config', 'plugins', 'agy-tokless', 'tools', 'repo-skeleton', 'lib', 'langs', 'java', 'index.js')));
+  assert(fs.existsSync(path.join(agyPluginDir, 'plugin.json')));
+  assert(!fs.existsSync(agyHooksPath), 'Default install must not generate hooks.json');
+  assert(fs.existsSync(path.join(agyPluginDir, 'tools', 'repo-skeleton', 'lib', 'core', 'registry.js')));
+  assert(fs.existsSync(path.join(agyPluginDir, 'tools', 'repo-skeleton', 'lib', 'langs', 'java', 'index.js')));
   assert(fs.existsSync(path.join(claudeDir, 'tokless', 'scripts', 'read-guard-hook.js')));
   assert(fs.existsSync(path.join(claudeDir, 'tokless', 'tools', 'repo-skeleton', 'lib', 'core', 'registry.js')));
   assert(fs.existsSync(path.join(claudeDir, 'tokless', 'tools', 'repo-skeleton', 'lib', 'langs', 'java', 'index.js')));
@@ -620,6 +632,23 @@ function testUnifiedCliAndCrossAgentTargets(tmpDir) {
   assert(fs.existsSync(path.join(codexDir, 'skills', 'code-skeleton', 'tools', 'repo-skeleton', 'lib', 'core', 'registry.js')));
   assert(fs.existsSync(path.join(codexDir, 'skills', 'code-skeleton', 'tools', 'repo-skeleton', 'lib', 'langs', 'java', 'index.js')));
 
+  const defaultClaudeSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8'));
+  assert.strictEqual(defaultClaudeSettings.hooks.PreToolUse.length, 1, 'Default install must not inject Claude Read hook');
+  assert.strictEqual(defaultClaudeSettings.hooks.PreToolUse[0].matcher, 'Bash');
+
+  // 2) Opt-in --with-guard install MUST mount hooks.json and idempotently merge Claude Read hook
+  execFileSync(process.execPath, [cliPath, 'install', '--with-guard', '--copy'], {
+    env: envWithHome,
+    encoding: 'utf8',
+    stdio: 'pipe'
+  });
+  execFileSync(process.execPath, [cliPath, 'install', '--target', 'claude', '--with-guard', '--copy'], {
+    env: envWithHome,
+    encoding: 'utf8',
+    stdio: 'pipe'
+  });
+
+  assert(fs.existsSync(agyHooksPath), '--with-guard must generate Antigravity hooks.json');
   const mergedSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8'));
   assert.strictEqual(mergedSettings.theme, 'dark');
   assert.deepStrictEqual(mergedSettings.permissions, existingSettings.permissions);
@@ -647,6 +676,24 @@ function testUnifiedCliAndCrossAgentTargets(tmpDir) {
   const claudeDenyJson = JSON.parse(claudeDenyRes.stdout.trim());
   assert.strictEqual(claudeDenyJson.hookSpecificOutput.permissionDecision, 'deny');
   assert(claudeDenyJson.hookSpecificOutput.permissionDecisionReason.includes('function sampleTargetFn'));
+
+  // 3) Re-running default install (without --with-guard) MUST automatically purge stale hooks
+  execFileSync(process.execPath, [cliPath, 'install', '--copy'], {
+    env: envWithHome,
+    encoding: 'utf8',
+    stdio: 'pipe'
+  });
+  assert(!fs.existsSync(agyHooksPath), 'Re-running default install must remove stale Antigravity hooks.json');
+  const autoCleanedSettings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8'));
+  assert.strictEqual(autoCleanedSettings.hooks.PreToolUse.length, 1, 'Re-running default install must remove stale Claude Read hook');
+  assert.strictEqual(autoCleanedSettings.hooks.PreToolUse[0].matcher, 'Bash');
+
+  // 4) Re-enable --with-guard and verify clean uninstall
+  execFileSync(process.execPath, [cliPath, 'install', '--with-guard', '--copy'], {
+    env: envWithHome,
+    encoding: 'utf8',
+    stdio: 'pipe'
+  });
 
   execFileSync(process.execPath, [cliPath, 'uninstall', '--target', 'all'], {
     env: envWithHome,
