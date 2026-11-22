@@ -208,6 +208,26 @@ function testRepoSkeletonAndReadGuardHook(tmpDir) {
   const out = execFileSync(process.execPath, [skelCli, REPO_ROOT, '--depth', '3'], { encoding: 'utf8' });
   assert(out.includes('read-guard-hook.js'));
   assert(out.includes('function evaluateReadGuard'));
+  assert(out.includes(' 字 | '));
+
+  const mapOut = execFileSync(process.execPath, [skelCli, REPO_ROOT, '--map'], { encoding: 'utf8' });
+  assert(mapOut.includes('目录地图:'));
+  assert(mapOut.includes('tools/repo-skeleton/lib/skeleton.js ('));
+  assert(!mapOut.includes('function evaluateReadGuard'), '--map mode must not expand internal AST signatures');
+
+  const mapShallowOut = execFileSync(process.execPath, [skelCli, REPO_ROOT, '--map', '--depth', '1'], { encoding: 'utf8' });
+  assert(mapShallowOut.includes('index.js ('));
+  assert(!mapShallowOut.includes('tools/repo-skeleton/lib/skeleton.js ('), '--map with --depth 1 must respect explicit depth');
+
+  const mapJsonRaw = execFileSync(process.execPath, [skelCli, REPO_ROOT, '--map', '--json'], { encoding: 'utf8' });
+  const mapJson = JSON.parse(mapJsonRaw);
+  assert.strictEqual(mapJson.mode, 'map');
+  assert.strictEqual(mapJson.depth, 8);
+  assert(typeof mapJson.totalChars === 'number' && mapJson.totalChars > 1000);
+  assert(Array.isArray(mapJson.files) && mapJson.files.some((f) => f.relPath === 'tools/repo-skeleton/lib/skeleton.js' && f.charCount > 1000));
+
+  const cliHelpOut = execFileSync(process.execPath, [skelCli, '--help'], { encoding: 'utf8' });
+  assert(cliHelpOut.includes('--map'));
 
   const hookScript = path.join(REPO_ROOT, 'scripts', 'read-guard-hook.js');
   const bigJs = path.join(tmpDir, 'big.js');
@@ -390,20 +410,41 @@ assert.deepStrictEqual(Object.keys(pkgJson.exports).sort(), ['.', './audit', './
 
 assert.strictEqual(rootPkg.generateFileSkeleton, skelMod.generateFileSkeleton);
 assert.strictEqual(rootPkg.scanDirectorySkeleton, skelMod.scanDirectorySkeleton);
+assert.strictEqual(rootPkg.generateRepoMap, skelMod.generateRepoMap);
+assert.strictEqual(rootPkg.formatDirectoryMap, skelMod.formatDirectoryMap);
 assert.strictEqual(typeof skelMod.generateSkeleton, 'function');
 assert.strictEqual(typeof skelMod.formatDirectorySkeleton, 'function');
+assert.strictEqual(typeof skelMod.generateRepoMap, 'function');
+assert.strictEqual(typeof skelMod.formatDirectoryMap, 'function');
 
-const fileSkel = skelMod.generateFileSkeleton(${JSON.stringify(bigJs)});
+const fileSkel = skelMod.generateFileSkeleton(${JSON.stringify(bigJs)}, { includeHeader: true });
 assert.strictEqual(fileSkel.totalLines, 500);
+assert.strictEqual(fileSkel.lineCount, 500);
+assert.strictEqual(fileSkel.charCount, fs.readFileSync(${JSON.stringify(bigJs)}, 'utf8').length);
 assert(fileSkel.formatted.includes('function exportedAlpha(x)'));
+assert(fileSkel.formatted.includes(' 字 | '));
 
 const unifiedFile = skelMod.generateSkeleton(${JSON.stringify(bigJs)});
 assert.strictEqual(unifiedFile.mode, 'file');
+assert.strictEqual(unifiedFile.charCount, fileSkel.charCount);
+assert(unifiedFile.text.includes(' 字 | '));
 assert(unifiedFile.text.includes('function exportedAlpha(x)'));
 
 const unifiedDir = skelMod.generateSkeleton(${JSON.stringify(tmpDir)}, { depth: 1 });
 assert.strictEqual(unifiedDir.mode, 'directory');
+assert(typeof unifiedDir.totalChars === 'number' && unifiedDir.totalChars >= fileSkel.charCount);
 assert(unifiedDir.text.includes('export-guard-big.js'));
+assert(unifiedDir.text.includes(' 字 | '));
+
+const repoMap = rootPkg.generateRepoMap(${JSON.stringify(tmpDir)});
+assert.strictEqual(repoMap.mode, 'map');
+assert.strictEqual(repoMap.map, true);
+assert(repoMap.text.includes('export-guard-big.js (500 行 | '));
+assert(!repoMap.text.includes('function exportedAlpha(x)'));
+
+const mapViaSkel = skelMod.generateSkeleton(${JSON.stringify(tmpDir)}, { map: true });
+assert.strictEqual(mapViaSkel.mode, 'map');
+assert.strictEqual(mapViaSkel.totalChars, repoMap.totalChars);
 
 assert.strictEqual(rootPkg.analyzeSession, auditMod.analyzeSession);
 assert.strictEqual(rootPkg.auditProject, auditMod.auditProject);

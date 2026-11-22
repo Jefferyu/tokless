@@ -95,9 +95,10 @@ Two isolated Git worktrees from the same commit (`3908815`), running the exact s
 
 ### 1. `tokless skeleton` (alias `repo-skeleton`) + `rules/AGENTS.md` — [100% Universal]
 
-Zero pre-indexing, pure Node.js standard library. Extracts class/function signatures and exact **`[Lstart-Lend]` line ranges** across `.js/.ts/.tsx/.py/.go/.rs/.java/.c/.cpp/.md` in milliseconds, cutting exploration tokens by **85%~97%** when paired with [`rules/AGENTS.md`](./rules/AGENTS.md):
+Zero pre-indexing, pure Node.js standard library. Extracts class/function signatures and exact **`[Lstart-Lend]` line ranges** across `.js/.jsx/.ts/.tsx/.vue/.svelte/.py/.go/.rs/.java/.kt/.c/.cpp/.cs/.md` in milliseconds (lazy-loading only the scanned language parser), cutting exploration tokens by **85%~97%** when paired with [`rules/AGENTS.md`](./rules/AGENTS.md):
 
 ```bash
+npx tokless skeleton . --map
 npx tokless skeleton ./src --depth 2
 npx tokless skeleton ./src/App.tsx --json
 ```
@@ -177,7 +178,9 @@ const verdict = evaluateReadGuard({
 
 ---
 
-## Contributing New Agent Targets (`targets/`)
+## Contributing Agent Targets & Language Parsers
+
+### 1. Host Agent Installers (`targets/<agent>.js`)
 
 Host integrations live as self-contained adapters under [`targets/`](./targets/):
 
@@ -185,7 +188,17 @@ Host integrations live as self-contained adapters under [`targets/`](./targets/)
 - [`targets/claude-code.js`](./targets/claude-code.js) — Claude Code `~/.claude/settings.json` non-destructive hook merge + skill (best reference template for new adapters)
 - [`targets/codex.js`](./targets/codex.js) — OpenAI Codex CLI skill installer
 
-Rather than guessing every editor's private config layout upfront, we prioritize clean community co-creation: if you use **Cursor, Windsurf, Cline, Roo Code, Trae, OpenCode, or GitHub Copilot**, point your AI at [`targets/claude-code.js`](./targets/claude-code.js), register the new adapter in [`targets/index.js`](./targets/index.js), and open a Pull Request (language parser additions under `tools/repo-skeleton` are welcome too). Verified PRs are merged and released right away, while official support for additional hosts will continue rolling out over time. Run the verification suite locally before submitting:
+Rather than guessing every editor's private config layout upfront, we prioritize clean community co-creation: if you use **Cursor, Windsurf, Cline, Roo Code, Trae, OpenCode, or GitHub Copilot**, point your AI at [`targets/claude-code.js`](./targets/claude-code.js), register the new adapter in [`targets/index.js`](./targets/index.js), and open a Pull Request. Verified PRs are merged and released right away, while official support for additional hosts will continue rolling out over time.
+
+### 2. Language Skeleton Parsers & Regression Fixes (`tools/repo-skeleton/lib/langs/<lang>/`)
+
+Every supported language is treated on equal footing as a standalone module under [`tools/repo-skeleton/lib/langs/<lang>/index.js`](./tools/repo-skeleton/lib/langs/) backed by the shared lexer and balanced-delimiter engine in [`tools/repo-skeleton/lib/core/`](./tools/repo-skeleton/lib/core/). Each language directory manages all of its associated file extensions in one place (for example, `javascript/` handles `.js/.jsx/.mjs/.cjs/.ts/.tsx`, `c-family/` handles `.c/.h/.cpp/.hpp/.cc/.cs`, and `sfc/` handles `.vue/.svelte`), and `core/registry.js` lazy-loads a parser only when a matching file extension is actually scanned.
+
+When fixing a real-world syntax edge case or adding a new language:
+
+1. Update or add the corresponding `tools/repo-skeleton/lib/langs/<lang>/index.js` (and register any new extensions in `tools/repo-skeleton/lib/core/registry.js`);
+2. **Add a regression test reproducing the exact real-world case in `tests/langs/<lang>.test.js`** ([`tests/run-all.js`](./tests/run-all.js) automatically discovers all `tests/**/*.test.js` suites without editing `package.json`);
+3. Run the full verification suite locally (cumulative language regressions, cross-platform checks, and the zero-personal-path leak gate) to ensure 100% zero breakage before opening a PR:
 
 ```bash
 npm test
@@ -197,7 +210,7 @@ npm test
 
 Built from scratch on the Node.js standard library. Special thanks to:
 
-- **Contributors**: [@PXY000](https://github.com/PXY000) for cross-platform PowerShell skill templates, absolute Node binary resolution in hooks, path traversal guards, and regression tests.
+- **Contributors**: [@PXY000](https://github.com/PXY000) for cross-platform PowerShell skill templates, absolute Node binary resolution in hooks, path traversal guards, and regression tests; [@Mr-PolarBear](https://github.com/Mr-PolarBear) for Java nested classes, dotted/generic return types, anonymous field filtering, and JS top-level IIFE skeleton extraction fixes.
 - **Open-Source Inspiration**: [HoangP8/tokless](https://github.com/HoangP8/tokless), [ILoveMyJay/repocontext](https://github.com/ILoveMyJay/repocontext), [pdavis68/RepoMapper](https://github.com/pdavis68/RepoMapper), and [ooples/token-optimizer-mcp](https://github.com/ooples/token-optimizer-mcp).
 
 ## License

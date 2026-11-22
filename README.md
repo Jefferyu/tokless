@@ -119,9 +119,12 @@ $$\text{累计 Cache Read} \approx \text{平均上下文水位} \times \text{模
 
 ### 1. `tokless skeleton`（兼容 `repo-skeleton`）+ `rules/AGENTS.md` 省流规范 —【100% 所有 AI 编程工具通用】
 
-无需预建索引数据库，纯 Node.js 标准库毫秒级提取 `.js/.ts/.tsx/.py/.go/.rs/.java/.c/.cpp/.md` 等文件的类名、函数签名、接口与精确 **`[L起-L止]` 行号范围**，配合 [`rules/AGENTS.md`](./rules/AGENTS.md) 中的两步精准读取规范，探索期单文件省流 **85%~97%**：
+无需预建索引数据库，纯 Node.js 标准库毫秒级提取 `.js/.jsx/.ts/.tsx/.vue/.svelte/.py/.go/.rs/.java/.kt/.c/.cpp/.cs/.md` 等文件的类名、函数签名、接口与精确 **`[L起-L止]` 行号范围**（按需惰性加载对应语言解析器），配合 [`rules/AGENTS.md`](./rules/AGENTS.md) 中的两步精准读取规范，探索期单文件省流 **85%~97%**：
 
 ```bash
+# 快速生成全仓目录行数与字数鸟瞰地图（不展开函数签名）
+npx tokless skeleton . --map
+
 # 扫描整个源码目录（自动排除 node_modules/.git/dist/target 等），一步生成全局行号地图
 npx tokless skeleton ./src --depth 3
 
@@ -204,7 +207,9 @@ const verdict = evaluateReadGuard({
 
 ---
 
-## 社区共建：欢迎扩展更多 AI 编程工具（Contributing）
+## 社区共建：欢迎扩展更多 AI 编程工具与语言支持（Contributing）
+
+### 1. 新增 AI 编程工具一键挂载（`targets/<agent>.js`）
 
 `tokless` 将各宿主的安装与卸载逻辑完全解耦在 [`targets/`](./targets/) 目录下，每个宿主只需一个独立的百行级适配器文件：
 
@@ -212,9 +217,17 @@ const verdict = evaluateReadGuard({
 - [`targets/claude-code.js`](./targets/claude-code.js) — Claude Code `~/.claude/settings.json` 无损合并与技能挂载（推荐新增适配时优先参考）
 - [`targets/codex.js`](./targets/codex.js) — OpenAI Codex CLI 技能挂载
 
-因作者近期精力有限，暂未逐一折腾十几个编辑器的专属全局配置与钩子格式。非常欢迎使用 **Cursor、Windsurf、Cline、Roo Code、Trae、OpenCode、GitHub Copilot** 等工具的开发者，直接让自己的 AI 参考 [`targets/claude-code.js`](./targets/claude-code.js) 完成适配并在 [`targets/index.js`](./targets/index.js) 中注册后提交 Pull Request（或为 `tools/repo-skeleton` 补充更多语言的语法签名识别）——我们审核无误后会立即合并发版；后续作者空下来也会逐步补充更多工具的官方一键支持。
+因作者近期精力有限，暂未逐一折腾十几个编辑器的专属全局配置与钩子格式。非常欢迎使用 **Cursor、Windsurf、Cline、Roo Code、Trae、OpenCode、GitHub Copilot** 等工具的开发者，直接让自己的 AI 参考 [`targets/claude-code.js`](./targets/claude-code.js) 完成适配并在 [`targets/index.js`](./targets/index.js) 中注册后提交 Pull Request——我们审核无误后会立即合并发版；后续作者空下来也会逐步补充更多工具的官方一键支持。
 
-提交 PR 前请在本地运行全套自检（包含跨平台路径测试与 100% 零私人路径泄漏门禁）：
+### 2. 多语言骨架解析扩展与真实场景修复（`tools/repo-skeleton/lib/langs/<lang>/`）
+
+`tokless skeleton` 对所有支持语言一视同仁，统一采用「共享词法与括号平衡核心（[`tools/repo-skeleton/lib/core/`](./tools/repo-skeleton/lib/core/)）+ 按语言独立分目录（[`tools/repo-skeleton/lib/langs/<lang>/index.js`](./tools/repo-skeleton/lib/langs/)）」的模块化架构：每种语言在独立目录内统一管理关联文件后缀（如 `javascript/` 承接 `.js/.jsx/.mjs/.cjs/.ts/.tsx`、`c-family/` 承接 `.c/.h/.cpp/.hpp/.cc/.cs`、`sfc/` 承接 `.vue/.svelte` 等），仅在扫描到对应后缀时由 `core/registry.js` 按需惰性加载，互不耦合且保持毫秒级冷启动。
+
+如果你在真实项目中遇到某门语言的语法边界漏检，或希望新增语言支持，请遵循以下稳健省心的共创约定：
+
+1. 修改或新增对应的 `tools/repo-skeleton/lib/langs/<lang>/index.js`（若新增后缀，同步注册至 `tools/repo-skeleton/lib/core/registry.js` 的 `LANG_DIR_TO_EXTS`）；
+2. **必须在 `tests/langs/<lang>.test.js` 补上复现该真实场景的回归测试用例**（[`tests/run-all.js`](./tests/run-all.js) 会自动递归发现 `tests/` 下全部 `*.test.js`，无需手改 `package.json` 测试列表）；
+3. 提交 PR 前在本地运行全套自检（包含全量语言累积回归测试、跨平台路径测试与 100% 零私人路径泄漏门禁），确保历史全量用例 100% 零破坏：
 
 ```bash
 npm test
@@ -226,7 +239,7 @@ npm test
 
 `tokless` 全部代码基于 Node.js 标准库从零独立实现，核心设计思路受益于以下优秀开源探索与社区贡献者，特此致谢：
 
-- **社区贡献者**：感谢 [@PXY000](https://github.com/PXY000) 在跨平台 PowerShell 技能文档、钩子 Node 绝对路径解析、路径穿越防护与沙箱安全审计查找上的扎实修复与单测贡献。
+- **社区贡献者**：感谢 [@PXY000](https://github.com/PXY000) 在跨平台 PowerShell 技能文档、钩子 Node 绝对路径解析、路径穿越防护与沙箱安全审计查找上的扎实修复与单测贡献；感谢 [@Mr-PolarBear](https://github.com/Mr-PolarBear) 在 Java 嵌套类、点号/泛型返回类型、匿名字段过滤与 JS 顶层 IIFE 骨架提取上的真实场景修复贡献。
 - **灵感致敬**：
   - [HoangP8/tokless](https://github.com/HoangP8/tokless)：启发了项目命名及“指令规范 + 生命周期钩子”组合拦截上下文膨胀的思路；
   - [ILoveMyJay/repocontext](https://github.com/ILoveMyJay/repocontext) 与 [pdavis68/RepoMapper](https://github.com/pdavis68/RepoMapper)：启发了“先拿带行号的紧凑语法骨架地图，再按行号精准切片读取”的探索期降耗策略；

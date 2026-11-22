@@ -51,6 +51,8 @@ module.exports = {
   scanDirectorySkeleton: skeleton.scanDirectorySkeleton,
   formatSkeletonItems: skeleton.formatSkeletonItems,
   formatDirectorySkeleton: skeleton.formatDirectorySkeleton,
+  formatDirectoryMap: skeleton.formatDirectoryMap,
+  generateRepoMap: skeleton.generateRepoMap,
   generateSkeleton: skeleton.generateSkeleton,
   estimateTokens: audit.estimateTokens,
   analyzeSession: audit.analyzeSession,
