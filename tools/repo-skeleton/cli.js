@@ -16,13 +16,14 @@ function printUsage() {
 
 用法:
   node cli.js <文件路径> [--map] [--json]
-  node cli.js <目录路径> [--depth <深度, 默认 2>] [--map] [--json]
+  node cli.js <目录路径> [--depth <深度, 默认 2>] [--exclude <dir1,dir2>] [--map] [--json]
 
 选项:
-  --depth <N>   目录扫描最大深度（常规默认: 2，--map 默认: 8；自动排除 node_modules/.git/dist/build/exports/.next/target/__pycache__）
-  --map         极简全仓文件体量地图模式（仅输出相对路径、总行数与总字数，不展开函数签名）
-  --json        输出结构化 JSON
-  -h, --help    显示帮助信息`);
+  --depth <N>        目录扫描最大深度（常规默认: 2，--map 默认: 8；自动排除 node_modules/.git/dist/build/exports/.next/target/__pycache__/Objects/Listings/.cache/.clangd/cmake-build-*）
+  --exclude <dirs>   额外排除的目录名（逗号分隔，可重复传入）
+  --map              极简全仓文件体量地图模式（仅输出相对路径、总行数与总字数，不展开函数签名）
+  --json             输出结构化 JSON
+  -h, --help         显示帮助信息`);
 }
 
 function parseArgs(argv) {
@@ -32,6 +33,7 @@ function parseArgs(argv) {
   let map = false;
   let json = false;
   let help = false;
+  const exclude = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -52,17 +54,30 @@ function parseArgs(argv) {
       if (/^\d+$/.test(val)) {
         depth = parseInt(val, 10);
       }
+    } else if (arg === '--exclude') {
+      const next = args[i + 1];
+      if (next !== undefined) {
+        for (const p of next.split(',')) {
+          if (p.trim()) exclude.push(p.trim());
+        }
+        i++;
+      }
+    } else if (arg.startsWith('--exclude=')) {
+      const val = arg.slice('--exclude='.length);
+      for (const p of val.split(',')) {
+        if (p.trim()) exclude.push(p.trim());
+      }
     } else if (!arg.startsWith('-') && !target) {
       target = arg;
     }
   }
 
   const effectiveDepth = depth !== null ? depth : (map ? 8 : 2);
-  return { target, depth: effectiveDepth, map, json, help };
+  return { target, depth: effectiveDepth, map, json, help, exclude };
 }
 
 function main() {
-  const { target, depth, map, json, help } = parseArgs(process.argv);
+  const { target, depth, map, json, help, exclude } = parseArgs(process.argv);
 
   if (help || !target) {
     printUsage();
@@ -79,7 +94,7 @@ function main() {
   const t0 = performance.now();
 
   if (map) {
-    const result = generateRepoMap(resolved, { depth });
+    const result = generateRepoMap(resolved, { depth, exclude });
     if (json) {
       console.log(JSON.stringify(result, null, 2));
       return;
@@ -108,7 +123,7 @@ function main() {
   }
 
   if (stat.isDirectory()) {
-    const result = scanDirectorySkeleton(resolved, { depth });
+    const result = scanDirectorySkeleton(resolved, { depth, exclude });
     const elapsedMs = Number((performance.now() - t0).toFixed(2));
 
     if (json) {
