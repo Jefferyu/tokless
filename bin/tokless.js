@@ -14,8 +14,8 @@ function printHelp() {
 Usage:
   tokless install [--target agy|claude|codex|all] [--with-guard] [--copy]
   tokless uninstall [--target agy|claude|codex|all]
-  tokless skeleton <file-or-dir> [--depth <N>] [--map] [--json]
-  tokless audit <session|compare|project> [args...] [--json]
+  tokless skeleton <file-or-dir> [--depth <N>] [--exclude <dirs>] [--map] [--json]
+  tokless audit <list|session|compare|project> [args...] [--json]
   tokless --version | -v
   tokless --help | -h
 

@@ -1,6 +1,6 @@
 ---
 name: code-skeleton
-description: 提取代码文件或目录的紧凑语法骨架（仅保留类名、函数签名、导出接口与精确 [L起-L止] 行号，剥离具体实现代码）。在探索代码库、排查 Bug 或读取中大型文件前使用此技能快速定位行号，可减少 85%~97% 的探索期 Token 消耗。
+description: 提取代码文件或目录的紧凑语法骨架（仅保留类名、函数签名、导出接口与精确 [L起-L止] 行号，剥离具体实现代码）。支持 C/C++ 大头文件与源码（.c/.h/.cpp/.hpp 的宏、typedef、struct、extern "C" 与条件编译平衡）。在探索代码库、排查 Bug 或读取中大型文件前使用此技能快速定位行号，可减少 85%~97% 的探索期 Token 消耗。
 ---
 
 # 代码骨架极速提取指南 (code-skeleton)
@@ -17,18 +17,18 @@ description: 提取代码文件或目录的紧凑语法骨架（仅保留类名�
 # 1. 扫描源码目录（自动排除 node_modules/.git/dist/target 等，默认深度 2），一步拿到全局函数与行号地图
 node "$HOME/.gemini/config/plugins/agy-tokless/tools/repo-skeleton/cli.js" <目录路径> --depth 2
 
-# 2. 提取单个大文件的函数/类签名与起止行号
+# 2. 提取单个大文件（含 C/C++ .c/.h/.cpp/.hpp）的函数/类/typedef/宏签名与起止行号
 node "$HOME/.gemini/config/plugins/agy-tokless/tools/repo-skeleton/cli.js" <文件路径>
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-# 1. 扫描源码目录（自动排除 node_modules/.git/dist/target 等，默认深度 2），一步拿到全局函数与行号地图
+# 1. 扫描源码目录（自动排除 node_modules/.git/dist/target/Objects/cmake-build-* 等，默认深度 2；支持 --exclude 指定额外忽略目录）
 node "$env:USERPROFILE\.gemini\config\plugins\agy-tokless\tools\repo-skeleton\cli.js" <目录路径> --depth 2
 
-# 2. 提取单个大文件的函数/类签名与起止行号
+# 2. 提取单个大文件（含 C/C++ .c/.h/.cpp/.hpp）的函数/类/typedef/宏签名与起止行号
 node "$env:USERPROFILE\.gemini\config\plugins\agy-tokless\tools\repo-skeleton\cli.js" <文件路径>
 ```
 
-拿到目标函数的 `[L起-L止]` 行号后，直接调用 `read_file(Path, StartLine, EndLine)`（或 Claude Code `Read(file_path, offset, limit)`）按需完整读取对应代码段（无单次行数跨度限制，凡传入显式行号一律放行；若启用 `--with-guard` 护栏，仅对 `>800` 行无行号盲读返回全文骨架辅助导航）。
+拿到目标函数的 `[L起-L止]` 行号后，直接调用 `read_file(Path, StartLine, EndLine)`（或 Claude Code `Read(file_path, offset, limit)`）按需完整读取对应代码段（针对骨架已定位的目标区间无单次跨度硬限制；但探索陌生中大型文件（`>200` 行）前必须先跑骨架，严禁直接传 `1-800` 等泛大跨度区间批量硬读代替骨架导航；若启用 `--with-guard` 护栏，仅对 `>800` 行无行号盲读返回全文骨架辅助导航）。

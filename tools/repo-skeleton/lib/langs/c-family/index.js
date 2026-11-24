@@ -9,28 +9,32 @@ const {
   stripLeadingAttributesAndAnnotations,
   scanBraceLanguage,
 } = require('../../core/block-anchor');
+const { parseCCpp } = require('./c-cpp-parser');
 
 const ID = 'c-family';
-const EXTENSIONS = ['.c', '.h', '.cpp', '.hpp', '.cc', '.cs'];
-const HEADER_EXTS = new Set(['.h', '.hpp']);
-const CPP_CONTAINERS = new Set(['class', 'struct', 'union', 'enum', 'namespace']);
+const EXTENSIONS = [
+  '.c',
+  '.h',
+  '.cpp',
+  '.hpp',
+  '.cc',
+  '.cxx',
+  '.c++',
+  '.hh',
+  '.hxx',
+  '.h++',
+  '.inl',
+  '.inc',
+  '.cs',
+];
 const CS_CONTAINERS = new Set(['class', 'struct', 'interface', 'enum', 'record', 'namespace']);
 
-function parse(lines, ext = '.c', options = {}) {
-  if (ext && typeof ext === 'object') {
-    options = ext;
-    ext = '.c';
-  }
-  const normalizedExt = String(ext || '.c').toLowerCase();
-  const isCs = normalizedExt === '.cs';
-  const isHeader = HEADER_EXTS.has(normalizedExt);
-  const lineOffset = options.lineOffset || 0;
-
+function parseCSharp(lines, lineOffset = 0) {
   const analyzed = preprocessBraceLines(lines, 'c');
 
   return scanBraceLanguage(analyzed, {
     lexer: 'c',
-    containers: isCs ? CS_CONTAINERS : CPP_CONTAINERS,
+    containers: CS_CONTAINERS,
     lineOffset,
     onStatementLine({
       analyzed: rows,
@@ -51,7 +55,7 @@ function parse(lines, ext = '.c', options = {}) {
       const inTypeScope =
         activeScope !== null && activeScope.kind !== 'namespace' && activeScope.kind !== 'enum';
 
-      if (isCs && inTypeScope) {
+      if (inTypeScope) {
         const propMatch = core.match(
           /^(?:(?:public|private|protected|internal|static|virtual|override|abstract|sealed|readonly|new|required|unsafe)\s+)+[\w.<>,?\[\]\s]+\s+([A-Za-z_]\w*)\s*(?:\{|=>)/
         );
@@ -78,31 +82,7 @@ function parse(lines, ext = '.c', options = {}) {
         }
       }
 
-      if (!isCs && /\boperator\s*(?:<<|>>|\+|-|\*|\/|%|\^|&|\|)=/.test(core)) {
-        const range = findDeclarationRange(rows, lineIdx, 'c');
-        if (range.hasBlock || isHeader) {
-          const opMatch = core.match(/\b(operator\s*(?:<<|>>|\+|-|\*|\/|%|\^|&|\|)=)/);
-          if (opMatch) {
-            const signature = buildCompactSignature(
-              rows,
-              lineIdx,
-              range.headerEndIdx,
-              range.hasBlock
-            );
-            items.push({
-              kind: inTypeScope ? 'method' : 'function',
-              name: opMatch[1].replace(/\s+/g, ''),
-              signature,
-              startLine: lineIdx + 1 + offset,
-              endLine: range.endIdx + 1 + offset,
-              depth: scopeStack.length,
-            });
-            return { jumpToLine: range.endIdx };
-          }
-        }
-      }
-
-      if (isHeader || (isCs && activeScope && activeScope.kind === 'interface')) {
+      if (activeScope && activeScope.kind === 'interface') {
         const range = findDeclarationRange(rows, lineIdx, 'c');
         if (range.hasBlock) return null;
 
@@ -113,50 +93,21 @@ function parse(lines, ext = '.c', options = {}) {
             .join(' ')
         ).trim();
         if (!joined.endsWith(';')) return null;
-        if (/^(?:typedef|using|friend|extern\s+"C"|template\b[^;]*;$)/.test(joined)) return null;
 
-        const cleanedProto = joined.replace(/^(?:public|private|protected)\s*:\s*/, '').trim();
-        const parenIdx = cleanedProto.indexOf('(');
+        const parenIdx = joined.indexOf('(');
         if (parenIdx <= 0) return null;
-        const beforeParen = cleanedProto.slice(0, parenIdx).trim();
+        const beforeParen = joined.slice(0, parenIdx).trim();
         if (hasTopLevelChar(beforeParen, '=')) return null;
 
-        const firstWordMatch = beforeParen.match(/^([A-Za-z_]\w*)\b/);
-        if (firstWordMatch && DEFAULT_CONTROL_KEYWORDS.has(firstWordMatch[1])) return null;
-
-        let name = '';
-        const opProto = beforeParen.match(/\b(operator\s*(?:\(\)|\[\]|[^\s(]+))\s*$/);
-        if (opProto) {
-          name = opProto[1].replace(/\s+/g, '');
-        } else {
-          const nm = beforeParen.match(/([~A-Za-z_]\w*)$/);
-          if (!nm || DEFAULT_CONTROL_KEYWORDS.has(nm[1])) return null;
-          name = nm[1];
-          const prefix = beforeParen.slice(0, beforeParen.length - name.length).trim();
-          const isCtorOrDtor =
-            inTypeScope &&
-            activeScope &&
-            (name === activeScope.name || name === `~${activeScope.name}`);
-          // 陷阱: 头文件宏调用（如 `DECLARE_API(foo);`）无返回类型前缀，必须要求显式返回类型或类构造/析构名才认作函数原型
-          if (!prefix && !isCtorOrDtor) return null;
-        }
-
-        const afterCloseIdx = cleanedProto.lastIndexOf(')');
-        if (afterCloseIdx === -1) return null;
-        const tail = cleanedProto.slice(afterCloseIdx + 1, -1).trim();
-        if (
-          tail &&
-          !/^(?:(?:const|volatile|noexcept(?:\([^)]*\))?|override|final)\s*)*(?:=\s*(?:0|default|delete))?$/.test(
-            tail
-          )
-        ) {
-          return null;
-        }
+        const nm = beforeParen.match(/([A-Za-z_]\w*)$/);
+        if (!nm || DEFAULT_CONTROL_KEYWORDS.has(nm[1])) return null;
+        const prefix = beforeParen.slice(0, beforeParen.length - nm[1].length).trim();
+        if (!prefix) return null;
 
         const signature = buildCompactSignature(rows, lineIdx, range.headerEndIdx, false);
         items.push({
-          kind: inTypeScope ? 'method' : 'function',
-          name,
+          kind: 'method',
+          name: nm[1],
           signature,
           startLine: lineIdx + 1 + offset,
           endLine: range.endIdx + 1 + offset,
@@ -168,6 +119,20 @@ function parse(lines, ext = '.c', options = {}) {
       return null;
     },
   });
+}
+
+function parse(lines, ext = '.c', options = {}) {
+  if (ext && typeof ext === 'object') {
+    options = ext;
+    ext = '.c';
+  }
+  const normalizedExt = String(ext || '.c').toLowerCase();
+  const lineOffset = options.lineOffset || 0;
+
+  if (normalizedExt === '.cs') {
+    return parseCSharp(lines, lineOffset);
+  }
+  return parseCCpp(lines, normalizedExt, options);
 }
 
 module.exports = {

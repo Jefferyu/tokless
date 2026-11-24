@@ -14,6 +14,12 @@ const IGNORED_DIRS = new Set([
   '.next',
   'target',
   '__pycache__',
+  'Objects',
+  'Listings',
+  '.cache',
+  '.clangd',
+  '.vs',
+  '.idea',
 ]);
 
 function formatSkeletonItems(result, options = {}) {
@@ -112,6 +118,16 @@ function scanDirectorySkeleton(dirPath, options = {}) {
       ? options.depth
       : null;
   const maxDepth = explicitMaxDepth !== null ? explicitMaxDepth : isMap ? 8 : 2;
+  const extraExclude = new Set();
+  if (Array.isArray(options.exclude) || options.exclude instanceof Set) {
+    for (const item of options.exclude) {
+      if (typeof item === 'string' && item.trim()) extraExclude.add(item.trim());
+    }
+  } else if (typeof options.exclude === 'string' && options.exclude.trim()) {
+    for (const part of options.exclude.split(',')) {
+      if (part.trim()) extraExclude.add(part.trim());
+    }
+  }
   const root = path.resolve(dirPath);
   const files = [];
 
@@ -127,7 +143,13 @@ function scanDirectorySkeleton(dirPath, options = {}) {
 
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (IGNORED_DIRS.has(entry.name)) continue;
+        if (
+          IGNORED_DIRS.has(entry.name) ||
+          entry.name.startsWith('cmake-build-') ||
+          extraExclude.has(entry.name)
+        ) {
+          continue;
+        }
         if (currentDepth < maxDepth) {
           walk(path.join(currentDir, entry.name), currentDepth + 1);
         }

@@ -96,11 +96,11 @@ Two isolated Git worktrees from the same commit (`3908815`), running the exact s
 
 ### 1. `tokless skeleton` (alias `repo-skeleton`) + `rules/AGENTS.md` — [100% Universal]
 
-Zero pre-indexing, pure Node.js standard library. Extracts class/function signatures, JS/TS test suites (`describe`/`test`/`it`), and exact **`[Lstart-Lend]` line ranges** across `.js/.jsx/.ts/.tsx/.vue/.svelte/.py/.go/.rs/.java/.kt/.c/.cpp/.cs/.md` in milliseconds (lazy-loading only the scanned language parser), cutting exploration tokens by **85%~97%** when paired with [`rules/AGENTS.md`](./rules/AGENTS.md):
+Zero pre-indexing, pure Node.js standard library. Extracts class/function signatures, typedefs/structs/enums/macros, JS/TS test suites (`describe`/`test`/`it`), and exact **`[Lstart-Lend]` line ranges** across `.js/.jsx/.ts/.tsx/.vue/.svelte/.py/.go/.rs/.java/.kt/.c/.h/.cpp/.hpp/.cs/.md` in milliseconds (lazy-loading only the scanned language parser; supports C/C++ `extern "C"`, `#if/#else/#endif` brace balancing, `#if 0` skipping, macro block folding, and default build-dir ignores such as `Objects`/`Listings`/`.clangd`/`cmake-build-*`), cutting exploration tokens by **85%~97%** when paired with [`rules/AGENTS.md`](./rules/AGENTS.md):
 
 ```bash
 npx tokless skeleton . --map
-npx tokless skeleton ./src --depth 2
+npx tokless skeleton ./src --depth 3 --exclude third_party,vendor
 npx tokless skeleton ./src/App.tsx --json
 ```
 
@@ -120,11 +120,14 @@ Offline 0-LLM-token inspector for rule bloat, MCP schema overhead, and Antigravi
 # [Universal] Audit AGENTS.md / SKILL.md bloat and workspace/global MCP schema base tax
 npx tokless audit project <project-dir>
 
-# [Antigravity Only] Dissect a session's Top 5 costliest steps, Prefix Cache cliffs, and compactions
-npx tokless audit session <session-id-prefix>
+# [Antigravity Only] List recent sessions across Antigravity sources (--source cli|app|ide|all)
+npx tokless audit list --source cli
+
+# [Antigravity Only] Dissect a session (supports latest, latest~1, ID prefix, or log path): Top 5 costliest steps, Prefix Cache cliffs & dual-model/Orchestrator switch attribution, and compactions
+npx tokless audit session latest
 
 # [Antigravity Only] Side-by-side A/B token bill comparison between two sessions
-npx tokless audit compare <before-id> <after-id>
+npx tokless audit compare latest~1 latest
 ```
 
 ---
