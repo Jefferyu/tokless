@@ -54,6 +54,8 @@ function formatSessionMarkdown(report) {
     turnDeltas = [],
     checkpoints = [],
     cacheCliffs = [],
+    modelBreakdown = [],
+    cacheCliffBreakdown = null,
     toolBreakdown,
     topBloats
   } = report;
@@ -94,10 +96,17 @@ function formatSessionMarkdown(report) {
     lines.push(`| **实测 Input Tokens** | **${fmtNum(stats.totalInputTokens)}** | 统计自 ${stats.usageFieldSteps} 次模型调用 |`);
     lines.push(`| **实测 Cache Read Tokens** | **${fmtNum(stats.totalCacheReadTokens)}** | 历史上下文缓存重复计费滚雪球命中量 |`);
     lines.push(`| **实测缓存命中率** | **${stats.cacheHitRatePct}%**（预热后 **${stats.postWarmupCacheHitRatePct}%**） | \`cache_read / (input + cache_read)\` |`);
+    const cliffSwitchNote = stats.modelSwitchCacheCliffCount > 0
+      ? `；其中模型切换 **${fmtNum(stats.modelSwitchCacheCliffCount)}** 次 ~**${fmtNum(stats.modelSwitchCacheRebilledTokens)}**`
+      : '';
     const cliffBadge = stats.cacheCliffCount > 0
-      ? `⚠️ 检出 **${stats.cacheCliffCount}** 次断层（重算浪费 ~**${fmtNum(stats.cacheRebilledTokens)}** Input）`
+      ? `⚠️ 检出 **${stats.cacheCliffCount}** 次断层（重算浪费 ~**${fmtNum(stats.cacheRebilledTokens)}** Input${cliffSwitchNote}）`
       : `✅ **0** 次断层`;
     lines.push(`| **Prefix Cache 断层告警** | ${cliffBadge} | 检测连续步骤间 \`cache_read\` 骤降且 \`input\` 暴涨 |`);
+    if (stats.distinctModelCount > 1) {
+      const modelsLabel = Array.isArray(stats.modelsUsed) ? stats.modelsUsed.map(m => `\`${m}\``).join(' ↔ ') : '';
+      lines.push(`| **调用模型与切换次数** | **${stats.distinctModelCount}** 个模型 / 切换 **${fmtNum(stats.modelSwitchCount)}** 次 | ${modelsLabel} |`);
+    }
     lines.push(`| **实测 Output Tokens** | **${fmtNum(stats.totalOutputTokens)}** | 模型生成输出 Token |`);
     lines.push(`| **总 Token 吞吐** | **${fmtNum(stats.totalThroughputTokens)}** | \`input + cache_read + output\` |`);
     lines.push(`| **峰值上下文水位** | **${fmtNum(stats.peakContextTokens)}**（三代 ~256K 占 **${stats.peakContextPct256k}%** / 四代推测 ~512K 占 **${stats.peakContextPct512k ?? Number(((stats.peakContextTokens / 512000) * 100).toFixed(1))}%**） | Step ${stats.peakContextStepIndex ?? '-'} 达峰；控水位减轮次是降低累计 Cache Read 的核心 |`);
@@ -116,6 +125,24 @@ function formatSessionMarkdown(report) {
       lines.push(`- **缓存连续性状态**: ✅ 全程未检出异常 Prefix Cache 断层（历史前缀保持严格追加复用）。`);
     } else {
       lines.push(`- **缓存断层告警**: ⚠️ 共检出 **${cacheCliffs.length}** 次缓存失效断层，估算多花原价 Input **~${fmtNum(stats.cacheRebilledTokens)}** Tokens：`);
+      if (cacheCliffBreakdown) {
+        const breakdownOrder = [
+          ['model_switch', '模型切换'],
+          ['idle_ttl_expired', '闲置超时'],
+          ['settings_or_model_switch', '设置/模型变更'],
+          ['prefix_mutated_or_evicted', '其他前缀变动']
+        ];
+        const parts = breakdownOrder
+          .map(([key, label]) => {
+            const item = cacheCliffBreakdown[key];
+            if (!item || !item.count) return null;
+            return `${label} **${fmtNum(item.count)}** 次 (~${fmtNum(item.estRebilledTokens)} Input)`;
+          })
+          .filter(Boolean);
+        if (parts.length > 0) {
+          lines.push(`- **断层根因拆解**: ${parts.join(' · ')}`);
+        }
+      }
       lines.push('');
       lines.push(`| # | 断层步骤 | 间隔时长 | 前步上下文 → 本步 Cache Read | 本步暴涨 Input | 估算重算浪费 | 疑似根因诊断 |`);
       lines.push(`| :--- | :--- | :--- | :--- | :--- | :--- | :--- |`);
@@ -126,7 +153,15 @@ function formatSessionMarkdown(report) {
         );
       }
       lines.push('');
-      lines.push(`- **止血建议**: ① 若闲置超过 1 小时缓存已过期，重开干净新会话带上精简结论往往比在巨型旧上下文里硬唤醒更省钱；② 严禁在对话中途动态篡改顶部常驻规则、系统提示词或增删 MCP 工具（破坏前缀只追加性）。`);
+      lines.push(`- **止血建议**: ① 若闲置超过 1 小时缓存已过期，重开干净新会话带上精简结论往往比在巨型旧上下文里硬唤醒更省钱；② 严禁在对话中途动态篡改顶部常驻规则、系统提示词或增删 MCP 工具（破坏前缀只追加性）；③ 若处于 Orchestrator / 双模型规划执行模式，跨模型切换必然触发 KV Cache 重算，建议集中规划后一次移交执行以减少高频往返切换。`);
+    }
+    if (modelBreakdown.length > 1) {
+      lines.push('');
+      lines.push(`| 模型 | 调用次数 | Input Tokens | Cache Read Tokens | Output Tokens | 缓存命中率 |`);
+      lines.push(`| :--- | :--- | :--- | :--- | :--- | :--- |`);
+      for (const m of modelBreakdown) {
+        lines.push(`| \`${escapePipe(m.model)}\` | ${fmtNum(m.calls)} | ${fmtNum(m.inputTokens)} | ${fmtNum(m.cacheReadTokens)} | ${fmtNum(m.outputTokens)} | **${m.cacheHitRatePct}%** |`);
+      }
     }
     lines.push('');
   }
@@ -308,6 +343,9 @@ function formatCompareMarkdown(cmp) {
       ['累计 Cache Read Tokens (滚雪球)', fmtNum(metrics.totalCacheReadTokens.before), fmtNum(metrics.totalCacheReadTokens.after), fmtDelta(metrics.totalCacheReadTokens.delta), fmtPct(metrics.totalCacheReadTokens.savedPct)],
       ['Prefix Cache 命中率 (%)', `${metrics.cacheHitRatePct.before}%`, `${metrics.cacheHitRatePct.after}%`, fmtDelta(metrics.cacheHitRatePct.delta, '%'), '-'],
       ['Prefix Cache 断层次数', fmtNum(metrics.cacheCliffCount.before), fmtNum(metrics.cacheCliffCount.after), fmtDelta(metrics.cacheCliffCount.delta), fmtPct(metrics.cacheCliffCount.savedPct)],
+      ...(metrics.modelSwitchCacheCliffCount && (metrics.modelSwitchCacheCliffCount.before > 0 || metrics.modelSwitchCacheCliffCount.after > 0)
+        ? [['└─ 其中模型切换引起', fmtNum(metrics.modelSwitchCacheCliffCount.before), fmtNum(metrics.modelSwitchCacheCliffCount.after), fmtDelta(metrics.modelSwitchCacheCliffCount.delta), fmtPct(metrics.modelSwitchCacheCliffCount.savedPct)]]
+        : []),
       ['累计 Output Tokens', fmtNum(metrics.totalOutputTokens.before), fmtNum(metrics.totalOutputTokens.after), fmtDelta(metrics.totalOutputTokens.delta), fmtPct(metrics.totalOutputTokens.savedPct)],
       ['总 Token 吞吐 (`input+cache_read+output`)', fmtNum(metrics.totalThroughputTokens.before), fmtNum(metrics.totalThroughputTokens.after), fmtDelta(metrics.totalThroughputTokens.delta), fmtPct(metrics.totalThroughputTokens.savedPct)],
       [
@@ -441,8 +479,40 @@ function formatProjectMarkdown(report) {
   return lines.join('\n');
 }
 
+function formatSessionListMarkdown(sessions, options = {}) {
+  const lines = [];
+  const sourceDesc = options.source ? `source=${options.source}` : 'all sources';
+  lines.push(`## 📋 最近 Antigravity 会话列表 (${sourceDesc})`);
+  lines.push('');
+
+  if (!sessions || sessions.length === 0) {
+    lines.push('*(未找到包含 transcript 日志的会话记录)*');
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  lines.push(`| # | 短 ID | 来源 | 标题 | 日志 | 大小 | 最后更新时间 |`);
+  lines.push(`| :--- | :--- | :--- | :--- | :--- | :--- | :--- |`);
+
+  sessions.forEach((s, idx) => {
+    const timeStr = s.mtimeIso ? s.mtimeIso.replace('T', ' ').slice(0, 19) : '-';
+    lines.push(
+      `| ${idx + 1} | \`${s.shortId}\` | ${escapePipe(s.sourceLabel || s.source)} | ${escapePipe(truncateText(s.title, 44))} | \`${s.logType}\` | ${fmtBytes(s.bytes)} | ${timeStr} |`
+    );
+  });
+
+  lines.push('');
+  lines.push(`> 💡 快捷命令：\`node cli.js session latest\`（最近一次）或 \`node cli.js session ${sessions[0].shortId}\``);
+  if (sessions.length >= 2) {
+    lines.push(`> ⚖️ 对比最近两次：\`node cli.js compare latest~1 latest\` 或 \`node cli.js compare ${sessions[1].shortId} ${sessions[0].shortId}\``);
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
 module.exports = {
   formatSessionMarkdown,
+  formatSessionListMarkdown,
   formatCompareMarkdown,
   formatProjectMarkdown
 };

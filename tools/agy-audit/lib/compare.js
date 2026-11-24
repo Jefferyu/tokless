@@ -20,9 +20,9 @@ function calcDelta(beforeVal, afterVal) {
   };
 }
 
-function compareSessions(idBefore, idAfter) {
-  const before = analyzeSession(idBefore);
-  const after = analyzeSession(idAfter);
+function compareSessions(idBefore, idAfter, options = {}) {
+  const before = analyzeSession(idBefore, options);
+  const after = analyzeSession(idAfter, options);
 
   const bMaxChars = before.stats.maxSingleStepOutput ? before.stats.maxSingleStepOutput.outputChars : 0;
   const aMaxChars = after.stats.maxSingleStepOutput ? after.stats.maxSingleStepOutput.outputChars : 0;
@@ -49,6 +49,8 @@ function compareSessions(idBefore, idAfter) {
     totalThroughputTokens: calcDelta(before.stats.totalThroughputTokens, after.stats.totalThroughputTokens),
     cacheHitRatePct: calcDelta(before.stats.cacheHitRatePct, after.stats.cacheHitRatePct),
     cacheCliffCount: calcDelta(before.stats.cacheCliffCount, after.stats.cacheCliffCount),
+    modelSwitchCount: calcDelta(before.stats.modelSwitchCount, after.stats.modelSwitchCount),
+    modelSwitchCacheCliffCount: calcDelta(before.stats.modelSwitchCacheCliffCount, after.stats.modelSwitchCacheCliffCount),
     peakContextTokens: calcDelta(before.stats.peakContextTokens, after.stats.peakContextTokens),
     peakContextPct256k: calcDelta(before.stats.peakContextPct256k, after.stats.peakContextPct256k),
     compactionCount: calcDelta(before.stats.compactionCount, after.stats.compactionCount)

@@ -9,6 +9,27 @@ const ALWAYS_ON_LINE_LIMIT = 100;
 const SKILL_LINE_LIMIT = 120;
 const ALWAYS_ON_BYTE_ADVISORY = 4000;
 const SKILL_BYTE_ADVISORY = 8000;
+const CONFIG_DIR_NAMES = ['.agents', '.agent', '_agents', '_agent'];
+
+function parseFrontmatterTrigger(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) return null;
+  for (const line of match[1].split(/\r?\n/)) {
+    const m = line.match(/^\s*trigger\s*:\s*['"]?([A-Za-z0-9_-]+)['"]?\s*$/i);
+    if (m) return m[1].toLowerCase();
+  }
+  return null;
+}
+
+function canonicalDocKey(filePath) {
+  try {
+    const rp = fs.realpathSync(filePath);
+    return process.platform === 'win32' ? rp.toLowerCase() : rp;
+  } catch (_) {
+    const resolved = path.resolve(filePath);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  }
+}
 
 // Baseline per-step schema token estimates
 const DEFAULT_BUILTIN_TOOLS_EST_TOKENS = 4200;
@@ -334,7 +355,17 @@ function inspectDocFile(filePath, rootDir, category, loadMode) {
   const estTokens = estimateTokens(chars);
   const relPath = path.relative(rootDir, filePath).replace(/\\/g, '/');
 
-  const isAlwaysOn = loadMode === 'Always-On';
+  let effectiveLoadMode = loadMode;
+  let effectiveCategory = category;
+  if (category === 'rule') {
+    const trigger = parseFrontmatterTrigger(content);
+    if (trigger === 'model_decision' || trigger === 'glob') {
+      effectiveLoadMode = 'Progressive Disclosure';
+      effectiveCategory = `rule (${trigger})`;
+    }
+  }
+
+  const isAlwaysOn = effectiveLoadMode === 'Always-On';
   const lineLimit = isAlwaysOn ? ALWAYS_ON_LINE_LIMIT : SKILL_LINE_LIMIT;
   const byteAdvisory = isAlwaysOn ? ALWAYS_ON_BYTE_ADVISORY : SKILL_BYTE_ADVISORY;
 
@@ -375,8 +406,8 @@ function inspectDocFile(filePath, rootDir, category, loadMode) {
   return {
     relativePath: relPath,
     absolutePath: filePath,
-    category,
-    loadMode,
+    category: effectiveCategory,
+    loadMode: effectiveLoadMode,
     lineLimit,
     lines,
     chars,
@@ -402,8 +433,9 @@ function auditProject(dirPath, options = {}) {
   const seenDocPaths = new Set();
   const pushDoc = (filePath, category, loadMode) => {
     const resolved = path.resolve(filePath);
-    if (seenDocPaths.has(resolved)) return;
-    seenDocPaths.add(resolved);
+    const key = canonicalDocKey(resolved);
+    if (seenDocPaths.has(key)) return;
+    seenDocPaths.add(key);
     files.push(inspectDocFile(resolved, rootDir, category, loadMode));
   };
 
@@ -418,11 +450,30 @@ function auditProject(dirPath, options = {}) {
     pushDoc(geminiPath, 'GEMINI.md', 'Always-On');
   }
 
-  // 2. .agents/rules/*.md (and plugin rules/*.md if plugin.json exists)
-  const rulesDirs = [path.join(rootDir, '.agents', 'rules')];
+  // 2 & 3. .agents / .agent / _agents / _agent rules, skills, and workspace plugins (plus root plugin layout)
+  const rulesDirs = [];
+  const skillsDirs = [];
+  for (const cfgName of CONFIG_DIR_NAMES) {
+    const cfgDir = path.join(rootDir, cfgName);
+    if (!fs.existsSync(cfgDir) || !fs.statSync(cfgDir).isDirectory()) continue;
+    rulesDirs.push(path.join(cfgDir, 'rules'));
+    skillsDirs.push(path.join(cfgDir, 'skills'));
+
+    const pluginsDir = path.join(cfgDir, 'plugins');
+    if (fs.existsSync(pluginsDir) && fs.statSync(pluginsDir).isDirectory()) {
+      for (const pEntry of fs.readdirSync(pluginsDir, { withFileTypes: true })) {
+        if (!pEntry.isDirectory()) continue;
+        const pRoot = path.join(pluginsDir, pEntry.name);
+        rulesDirs.push(path.join(pRoot, 'rules'));
+        skillsDirs.push(path.join(pRoot, 'skills'));
+      }
+    }
+  }
   if (fs.existsSync(path.join(rootDir, 'plugin.json'))) {
     rulesDirs.push(path.join(rootDir, 'rules'));
+    skillsDirs.push(path.join(rootDir, 'skills'));
   }
+
   for (const rulesDir of rulesDirs) {
     if (fs.existsSync(rulesDir) && fs.statSync(rulesDir).isDirectory()) {
       for (const entry of fs.readdirSync(rulesDir, { withFileTypes: true })) {
@@ -433,11 +484,6 @@ function auditProject(dirPath, options = {}) {
     }
   }
 
-  // 3. .agents/skills/*/SKILL.md (and plugin skills/*/SKILL.md if plugin.json exists)
-  const skillsDirs = [path.join(rootDir, '.agents', 'skills')];
-  if (fs.existsSync(path.join(rootDir, 'plugin.json'))) {
-    skillsDirs.push(path.join(rootDir, 'skills'));
-  }
   for (const skillsDir of skillsDirs) {
     if (fs.existsSync(skillsDir) && fs.statSync(skillsDir).isDirectory()) {
       for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {

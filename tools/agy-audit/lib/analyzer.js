@@ -1,7 +1,13 @@
 'use strict';
 
 const fs = require('fs');
-const { resolveSessionTarget, getConversationMeta, inspectSessionMountedMcp } = require('./paths');
+const {
+  resolveSessionTarget,
+  getConversationMeta,
+  extractFallbackTitleFromTranscript,
+  cleanUserPromptTitle,
+  inspectSessionMountedMcp,
+} = require('./paths');
 
 const COMPACTION_THRESHOLD_256K = 256000;
 const COMPACTION_THRESHOLD_512K = 512000;
@@ -38,7 +44,8 @@ function hasLineRange(args) {
   if (!args || typeof args !== 'object') return false;
   return (
     parseLineNumber(args.StartLine ?? args.startLine ?? args.start_line) !== null ||
-    parseLineNumber(args.EndLine ?? args.endLine ?? args.end_line) !== null
+    parseLineNumber(args.EndLine ?? args.endLine ?? args.end_line) !== null ||
+    parseLineNumber(args.ByteOffset ?? args.byteOffset ?? args.byte_offset) !== null
   );
 }
 
@@ -167,14 +174,18 @@ function formatToolTarget(name, args) {
     const snippet = innerStr && innerStr !== '{}' ? ` ${innerStr.slice(0, 60)}${innerStr.length > 60 ? '...' : ''}` : '';
     return `${srv}::${tl}${snippet}`;
   }
-  if (args.Path || args.path) {
-    const p = args.Path || args.path;
+  const targetFile = args.Path ?? args.path ?? args.file_path ?? args.AbsolutePath;
+  if (targetFile) {
     const start = args.StartLine ?? args.startLine ?? args.start_line;
     const end = args.EndLine ?? args.endLine ?? args.end_line;
+    const byteOffset = args.ByteOffset ?? args.byteOffset ?? args.byte_offset;
     if (start !== undefined || end !== undefined) {
-      return `${p} [L${start ?? 1}-L${end ?? 'EOF'}]`;
+      return `${targetFile} [L${start ?? 1}-L${end ?? 'EOF'}]`;
     }
-    return p;
+    if (byteOffset !== undefined) {
+      return `${targetFile} [ByteOffset:${byteOffset}]`;
+    }
+    return targetFile;
   }
   if (args.CommandLine || args.command) {
     return args.CommandLine || args.command;
@@ -220,6 +231,24 @@ function extractTokenUsage(step) {
   return { input, output, cacheRead, hasUsage };
 }
 
+function extractStepModel(step) {
+  if (!step || typeof step !== 'object') return null;
+  const candidates = [
+    step.model,
+    step.model_name,
+    step.modelName,
+    step.usage && step.usage.model,
+    step.metadata && step.metadata.model
+  ];
+  for (const val of candidates) {
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return null;
+}
+
 function computeIdleSeconds(prevIso, currIso) {
   if (!prevIso || !currIso) return null;
   const t1 = Date.parse(prevIso);
@@ -228,8 +257,9 @@ function computeIdleSeconds(prevIso, currIso) {
   return Math.round((t2 - t1) / 1000);
 }
 
-function analyzeSession(idOrPrefixOrPath) {
-  const { conversationId, transcriptInfo: info } = resolveSessionTarget(idOrPrefixOrPath);
+function analyzeSession(idOrPrefixOrPath, options = {}) {
+  const target = resolveSessionTarget(idOrPrefixOrPath, options);
+  const { conversationId, transcriptInfo: info } = target;
   if (!info) {
     throw new Error(`Transcript file not found for conversation: ${idOrPrefixOrPath}`);
   }
@@ -259,6 +289,7 @@ function analyzeSession(idOrPrefixOrPath) {
   let lastStepContextTokens = 0;
   let firstTimestamp = null;
   let lastTimestamp = null;
+  let fallbackTitle = '';
 
   const checkpoints = [];
   let pendingCheckpoint = null;
@@ -266,6 +297,8 @@ function analyzeSession(idOrPrefixOrPath) {
   let prevUsageStep = null;
   let sawCheckpointSincePrevUsage = false;
   let sawSettingsChangeSincePrevUsage = false;
+  const modelUsageMap = new Map();
+  let modelSwitchCount = 0;
 
   const toolCalls = [];
   const pendingQueue = [];
@@ -336,6 +369,24 @@ function analyzeSession(idOrPrefixOrPath) {
       totalOutputTokens += usage.output;
       totalCacheReadTokens += usage.cacheRead;
 
+      const currModel = extractStepModel(step);
+      if (currModel) {
+        if (!modelUsageMap.has(currModel)) {
+          modelUsageMap.set(currModel, {
+            model: currModel,
+            calls: 0,
+            inputTokens: 0,
+            cacheReadTokens: 0,
+            outputTokens: 0
+          });
+        }
+        const mu = modelUsageMap.get(currModel);
+        mu.calls++;
+        mu.inputTokens += usage.input;
+        mu.cacheReadTokens += usage.cacheRead;
+        mu.outputTokens += usage.output;
+      }
+
       currentTurnStat.inputTokens += usage.input;
       currentTurnStat.cacheReadTokens += usage.cacheRead;
       currentTurnStat.outputTokens += usage.output;
@@ -349,9 +400,15 @@ function analyzeSession(idOrPrefixOrPath) {
           currentTurnStat.peakContextTokens = stepContextTokens;
         }
 
+        const prevModel = prevUsageStep ? (prevUsageStep.model || null) : null;
+        const isModelSwitched = Boolean(prevModel && currModel && prevModel !== currModel);
+
         if (!prevUsageStep) {
           coldStartInputTokens = usage.input;
         } else {
+          if (isModelSwitched) {
+            modelSwitchCount++;
+          }
           postWarmupInputTokens += usage.input;
           postWarmupCacheReadTokens += usage.cacheRead;
 
@@ -369,12 +426,18 @@ function analyzeSession(idOrPrefixOrPath) {
               usage.input >= uncachedGap * 0.5
             ) {
               const idleSeconds = computeIdleSeconds(prevUsageStep.createdAt, step.created_at);
+              const isIdleExpired = idleSeconds !== null && idleSeconds >= IDLE_TTL_WARNING_SECONDS;
               let reasonCode = 'prefix_mutated_or_evicted';
               let reason = `前缀变动或缓存驱逐 (仅复用 ${(retentionRatio * 100).toFixed(1)}% 历史前缀，排查动态规则/工具变更)`;
 
-              if (idleSeconds !== null && idleSeconds >= IDLE_TTL_WARNING_SECONDS) {
+              if (isIdleExpired) {
                 reasonCode = 'idle_ttl_expired';
-                reason = `闲置超时导致缓存过期 (距上一步间隔 ${(idleSeconds / 60).toFixed(1)} 分钟，超出缓存保活窗口)`;
+                const switchSuffix = isModelSwitched ? `，且同时切换模型 (${prevModel} → ${currModel})` : '';
+                reason = `闲置超时导致缓存过期 (距上一步间隔 ${(idleSeconds / 60).toFixed(1)} 分钟，超出缓存保活窗口${switchSuffix})`;
+              } else if (isModelSwitched) {
+                reasonCode = 'model_switch';
+                const switchSource = sawSettingsChangeSincePrevUsage ? '手动/设置切换模型' : '双模型/Orchestrator 自动切换';
+                reason = `${switchSource} (${prevModel} → ${currModel}) 导致跨模型前缀重算`;
               } else if (sawSettingsChangeSincePrevUsage) {
                 reasonCode = 'settings_or_model_switch';
                 reason = '会话中途切换模型或设置 (USER_SETTINGS_CHANGE) 导致前缀重算';
@@ -388,6 +451,9 @@ function analyzeSession(idOrPrefixOrPath) {
                 turnIndex: Math.max(1, totalTurns),
                 createdAt: step.created_at || null,
                 idleSeconds,
+                prevModel,
+                currModel,
+                isModelSwitch: isModelSwitched,
                 prevContextTokens: prevContext,
                 prevCacheReadTokens: prevUsageStep.cacheRead,
                 currCacheReadTokens: usage.cacheRead,
@@ -419,7 +485,8 @@ function analyzeSession(idOrPrefixOrPath) {
           input: usage.input,
           cacheRead: usage.cacheRead,
           contextTokens: stepContextTokens,
-          createdAt: step.created_at || null
+          createdAt: step.created_at || null,
+          model: currModel
         };
         sawCheckpointSincePrevUsage = false;
         sawSettingsChangeSincePrevUsage = false;
@@ -660,7 +727,7 @@ function analyzeSession(idOrPrefixOrPath) {
   }
 
   // Merge session DB `<mcp_servers>` prompt inspection + transcript actual MCP invocations
-  const dbMcpInfo = inspectSessionMountedMcp(conversationId, info.filePath);
+  const dbMcpInfo = inspectSessionMountedMcp(conversationId, info.filePath, options);
   const mergedMcpMap = new Map();
 
   for (const srv of dbMcpInfo.servers) {
@@ -759,12 +826,29 @@ function analyzeSession(idOrPrefixOrPath) {
     }
   }
 
-  const dbMeta = getConversationMeta(conversationId);
+  if (!fallbackTitle) {
+    for (const s of steps) {
+      if (s && s.type === 'USER_INPUT' && typeof s.content === 'string') {
+        const cleaned = cleanUserPromptTitle(s.content);
+        if (cleaned) {
+          fallbackTitle = cleaned;
+          break;
+        }
+      }
+    }
+    if (!fallbackTitle) {
+      fallbackTitle = extractFallbackTitleFromTranscript(info.filePath);
+    }
+  }
+
+  const dbMeta = getConversationMeta(conversationId, options);
   const meta = {
     conversationId,
     shortId: conversationId.slice(0, 8),
-    title: (dbMeta && dbMeta.title) || 'Untitled Session',
+    title: (dbMeta && dbMeta.title) || fallbackTitle || 'Untitled Session',
     workspace: (dbMeta && dbMeta.workspace) || '',
+    source: target.source || 'unknown',
+    sourceLabel: target.sourceLabel || '',
     logType: info.logType,
     logFile: info.filePath,
     logBytes: info.bytes,
@@ -790,6 +874,34 @@ function analyzeSession(idOrPrefixOrPath) {
     ? Number(((postWarmupCacheReadTokens / postWarmupTotal) * 100).toFixed(1))
     : 0;
   const cacheRebilledTokens = cacheCliffs.reduce((s, c) => s + c.estRebilledTokens, 0);
+  const cacheCliffBreakdown = {
+    model_switch: { count: 0, estRebilledTokens: 0 },
+    idle_ttl_expired: { count: 0, estRebilledTokens: 0 },
+    settings_or_model_switch: { count: 0, estRebilledTokens: 0 },
+    prefix_mutated_or_evicted: { count: 0, estRebilledTokens: 0 }
+  };
+  for (const cliff of cacheCliffs) {
+    if (!cacheCliffBreakdown[cliff.reasonCode]) {
+      cacheCliffBreakdown[cliff.reasonCode] = { count: 0, estRebilledTokens: 0 };
+    }
+    cacheCliffBreakdown[cliff.reasonCode].count++;
+    cacheCliffBreakdown[cliff.reasonCode].estRebilledTokens += cliff.estRebilledTokens;
+  }
+  const modelSwitchCacheCliffCount = cacheCliffBreakdown.model_switch.count;
+  const modelSwitchCacheRebilledTokens = cacheCliffBreakdown.model_switch.estRebilledTokens;
+  const modelBreakdown = Array.from(modelUsageMap.values())
+    .map(m => {
+      const billed = m.inputTokens + m.cacheReadTokens;
+      return {
+        model: m.model,
+        calls: m.calls,
+        inputTokens: m.inputTokens,
+        cacheReadTokens: m.cacheReadTokens,
+        outputTokens: m.outputTokens,
+        cacheHitRatePct: billed > 0 ? Number(((m.cacheReadTokens / billed) * 100).toFixed(1)) : 0
+      };
+    })
+    .sort((a, b) => (b.inputTokens + b.cacheReadTokens) - (a.inputTokens + a.cacheReadTokens) || b.calls - a.calls || a.model.localeCompare(b.model));
 
   const netDeltas = turnDeltas.map(t => t.netContextDeltaTokens);
   const maxTurnNetContextDeltaTokens = netDeltas.length > 0 ? Math.max(...netDeltas) : 0;
@@ -816,6 +928,9 @@ function analyzeSession(idOrPrefixOrPath) {
       invokedMcpToolCalls: mcpAudit.totalMcpToolCalls,
       hasUsageMetrics: usageFieldSteps > 0,
       usageFieldSteps,
+      distinctModelCount: modelBreakdown.length,
+      modelsUsed: modelBreakdown.map(m => m.model),
+      modelSwitchCount,
       coldStartInputTokens,
       totalInputTokens,
       totalOutputTokens,
@@ -827,6 +942,8 @@ function analyzeSession(idOrPrefixOrPath) {
       postWarmupCacheHitRatePct,
       cacheCliffCount: cacheCliffs.length,
       cacheRebilledTokens,
+      modelSwitchCacheCliffCount,
+      modelSwitchCacheRebilledTokens,
       peakContextTokens,
       peakContextPct256k,
       peakContextPct512k,
@@ -851,6 +968,8 @@ function analyzeSession(idOrPrefixOrPath) {
     turnDeltas,
     checkpoints,
     cacheCliffs,
+    modelBreakdown,
+    cacheCliffBreakdown,
     toolBreakdown,
     topBloats
   };
