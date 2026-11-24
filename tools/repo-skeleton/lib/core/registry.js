@@ -25,7 +25,7 @@ const LANG_DIR_TO_EXTS = Object.freeze({
   go: ['.go'],
   rust: ['.rs'],
   python: ['.py'],
-  markdown: ['.md', '.mdx'],
+  markdown: ['.md', '.mdx', '.markdown'],
 });
 
 const EXT_TO_LANG_DIR = new Map();

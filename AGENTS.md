@@ -23,8 +23,10 @@
 1. **100% 零外部依赖**：仅使用 Node.js `>=18` 内置模块（可选动态探测如 `node:sqlite` 须在低版本 Node 无缝降级），严禁在 `package.json` 添加第三方 `dependencies`。
 2. **先看骨架再精读**：阅读或修改本仓 `>200` 行代码文件前，先运行 `node ./bin/tokless.js skeleton <path>` 定位 `[L起-L止]` 行号再分段读取，禁止盲读全文或用 `1-800` 泛区间硬扫。
 3. **跨平台与无损合并**：钩子须经 `resolveNodeBinary()` 写入 Node 绝对路径（兼容无 `PATH` 的 GUI 宿主）；从 `_npx` 临时目录安装时自动走实体文件拷贝防软链悬空；修改宿主配置（如 `~/.claude/settings.json`）须无损合并，100% 保留用户原有设置与其他 Hooks。
-4. **开源纯净度**：严禁在仓库任何受跟踪文件中混入本机用户名、主目录/盘符绝对路径或私有项目词（`tests/verify-tokless.js` 强校验）。
-5. **版本严格一致**：`package.json` 与 `plugin.json` 的 `version` 必须始终一致，发版统一使用 `npm run bump -- <x.y.z>` 修改，禁止只手改单处或在中英文文档标题中硬编码当前版本号。
+4. **开源纯净度与防反向泄密单测**：严禁在仓库任何受跟踪文件中混入本机用户名、主目录/盘符绝对路径或闭源私有项目词（`tests/verify-tokless.js` 强校验）。**防隐私扫描单测源码中严禁明文硬编码任何内部闭源私有项目名或角色名**（防止测试源码推上 GitHub 反向泄密；公开测试仅用 `os.userInfo().username` 动态探测与通用盘符正则，本地特定私有词一律存入已 `.gitignore` 忽略的 `.tokless-private-denylist` 按需读取）。
+5. **跨端中性品牌与诚实基线**：保持跨端中性命名 `tokless`（中英双语 `README.md` / `README.en.md` + 轻量 `assets/logo.svg` 几何矢量标志，开放 `targets/` 单文件插件接口引导社区 PR 共创）；引用历史账单对比数据（如 `v0.1.0` 测试数据）必须诚实注明测试基线版本号，绝不冒充最新版实测结果。
+6. **默认零拦截与显式行号 100% 放行**：`npx tokless install` 默认不挂载 `PreToolUse` 硬拦截钩子（重跑默认安装须自动清理残留旧钩子）；`--with-guard` 可选启用时默认阈值对齐宿主 `800` 行物理上限，且凡显式传入行号参数（`StartLine`/`EndLine`/`offset`/`limit`）一律 100% 放行。
+7. **版本严格一致**：`package.json` 与 `plugin.json` 的 `version` 必须始终一致，发版统一使用 `npm run bump -- <x.y.z>` 修改，禁止只手改单处或在中英文文档标题中硬编码当前版本号。
 
 ## 4. 宿主适配与语言扩展契约
 

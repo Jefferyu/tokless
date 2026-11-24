@@ -10,7 +10,9 @@
 
 ```js
 const {
-  generateSkeleton,        // File or directory [Lstart-Lend] map (supports depth / exclude / map)
+  generateSkeleton,        // File or directory [Lstart-Lend] map (supports depth / exclude / map / symbol)
+  sliceSymbol,             // Drift-proof source slice by function/method/section name (with typo fallback)
+  locateSymbol,            // Resolve live [startLine, endLine] metadata for a symbol without body text
   evaluateReadGuard,       // Pure validator for Antigravity / Claude Code PreToolUse payloads
   listSessions,            // List recent Antigravity sessions (source: 'cli' | 'app' | 'ide' | 'all')
   analyzeSession,          // Dissect session billing, model-switch cache cliffs & peak context ('latest')
@@ -22,7 +24,11 @@ const {
 const skel = generateSkeleton('./src', { depth: 2, exclude: ['third_party', 'vendor'] });
 console.log(skel.formatted);
 
-// 2. Evaluate PreToolUse payloads in memory
+// 2. Slice exact function/class method/Markdown section by symbol name
+const slice = sliceSymbol('./src/server.ts#Server.start', undefined, { lineNumbers: true });
+console.log(slice.formatted);
+
+// 3. Evaluate PreToolUse payloads in memory
 const verdict = evaluateReadGuard({
   tool_name: 'Read',
   tool_input: { file_path: './src/large-module.ts' },

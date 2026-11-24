@@ -10,7 +10,9 @@
 
 ```js
 const {
-  generateSkeleton,        // 自动识别文件或目录生成 [L起-L止] 骨架（支持 depth / exclude / map）
+  generateSkeleton,        // 自动识别文件或目录生成 [L起-L止] 骨架（支持 depth / exclude / map / symbol）
+  sliceSymbol,             // 按函数/类方法/章节名精准切片源码（抗并发编辑行号漂移，未命中返回候选建议与骨架）
+  locateSymbol,            // 定位符号当前起止行号区间（不拉取全文内容）
   evaluateReadGuard,       // 纯函数评估 Antigravity / Claude Code 读取请求是否无行号盲读
   listSessions,            // 列出本地 Antigravity 会话（支持 source: 'cli' | 'app' | 'ide' | 'all'）
   analyzeSession,          // 解析单次会话账单、模型切换缓存断层与峰值水位（支持 'latest'）
@@ -22,7 +24,11 @@ const {
 const skel = generateSkeleton('./src', { depth: 2, exclude: ['third_party', 'vendor'] });
 console.log(skel.formatted);
 
-// 2. 进程内调用防盲读判定（支持 Antigravity 与 Claude Code 载荷格式）
+// 2. 按符号/类方法/章节名精准切片源码（支持 "<file>#<symbol>" 或独立 symbol 参数）
+const slice = sliceSymbol('./src/server.ts#Server.start', undefined, { lineNumbers: true });
+console.log(slice.formatted);
+
+// 3. 进程内调用防盲读判定（支持 Antigravity 与 Claude Code 载荷格式）
 const verdict = evaluateReadGuard({
   tool_name: 'Read',
   tool_input: { file_path: './src/large-module.ts' },

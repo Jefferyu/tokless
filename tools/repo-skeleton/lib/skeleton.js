@@ -4,6 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const { estimateTokens, splitLines, formatInt } = require('./core/lexer');
 const { SUPPORTED_EXTS, getLanguageHandler } = require('./core/registry');
+const {
+  parseSliceTarget,
+  buildQualifiedItems,
+  locateSymbol,
+  sliceSymbol,
+  sliceSymbolFromText,
+} = require('./symbol-slice');
 
 const IGNORED_DIRS = new Set([
   'node_modules',
@@ -279,6 +286,9 @@ function generateRepoMap(targetPath, options = {}) {
 }
 
 function generateSkeleton(targetPath, options = {}) {
+  if (options.symbol !== undefined && options.symbol !== null && String(options.symbol).trim() !== '') {
+    return sliceSymbol(targetPath, options.symbol, options);
+  }
   const resolved = path.resolve(targetPath);
   const stat = fs.statSync(resolved);
   const t0 = performance.now();
@@ -365,4 +375,9 @@ module.exports = {
   formatDirectoryMap,
   generateRepoMap,
   generateSkeleton,
+  parseSliceTarget,
+  buildQualifiedItems,
+  locateSymbol,
+  sliceSymbol,
+  sliceSymbolFromText,
 };

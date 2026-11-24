@@ -14,7 +14,7 @@
 
 `tokless` 是面向主流 AI 编程 Agent（原生一键挂载 **Google Antigravity**、**Claude Code**、**Codex CLI**，通用支持 Cursor / Windsurf / Cline / Roo Code 等）的 **纯 Node.js（`>=18`）零外部依赖** 省流与账单透视套件：
 
-1. **防盲读省探索（`tokless skeleton`）**：IDE 的 `@Codebase` 只管找到文件，不管怎么读；AI 拿到文件名后常把上千行源码整份塞进上下文，在多步循环中引发 `Cache Read` 复利滚雪球。`tokless` 毫秒级提取函数/类/宏/类型定义与 **`[L起-L止]` 行号骨架**，让 AI 只按行切片读取真正要改的几十行代码（探索期单文件省流 **85%~97%**）。
+1. **防盲读省探索（`tokless skeleton` / `tokless slice`）**：IDE 的 `@Codebase` 只管找到文件，不管怎么读；AI 拿到文件名后常把上千行源码整份塞进上下文，在多步循环中引发 `Cache Read` 复利滚雪球。`tokless` 毫秒级提取函数/类/宏/类型定义与 **`[L起-L止]` 行号骨架**，并支持按函数/类方法/章节名直接抗漂移精准切片（探索期单文件省流 **85%~97%**）。
 2. **卸空载省底座（`tokless-coder` / `tokless-reviewer`）**：在纯写码/审码会话中剥离用不上的外部 MCP 与花哨工具 Schema，每步立省数千固定底座 Token。
 3. **查真账捉黑洞（`tokless audit`）**：0 模型 Token 离线解剖本地会话账单，一眼定位最烧钱的 Top 5 步骤、跨模型切换/闲置引起的 Prefix Cache 断层，以及项目规则与 MCP 空载开销。
 
@@ -76,10 +76,11 @@ npx tokless uninstall --target all     # 一键卸载并无损还原宿主原有
 ### 日常高频 CLI 速查
 
 ```bash
-# 1. 代码骨架提取（按需惰性加载 JS/TS、Vue/Svelte、Python、Go、Rust、Java、Kotlin、C/C++、C#、Markdown 解析器）
+# 1. 代码骨架提取与按符号切片（按需惰性加载 JS/TS、Vue/Svelte、Python、Go、Rust、Java、Kotlin、C/C++、C#、Markdown 解析器）
 npx tokless skeleton . --map                                    # 全仓文件行数与字数鸟瞰图
 npx tokless skeleton ./src --depth 3 --exclude third_party      # 目录级签名与 [L起-L止] 行号地图（自动排除常见构建产物）
 npx tokless skeleton ./driver/hal_uart.c                        # 单文件或 C/C++ 大头文件函数/宏/typedef/结构体定位
+npx tokless slice ./src/server.ts#Server.start --line-numbers   # 按类方法/函数/章节名精确切出源码（抗行号漂移，未命中返回候选建议）
 
 # 2. 本地 0 Token 账单与底座透视
 npx tokless audit project .                                     # [通用] 透视项目常驻规则、Skill 与 MCP 工具底座 Token 开销

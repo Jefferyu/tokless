@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const skeleton = require('./lib/skeleton');
+const slice = require('./lib/slice');
 const audit = require('./lib/audit');
 const readGuard = require('./lib/read-guard');
 
@@ -43,6 +44,7 @@ module.exports = {
   PACKAGE_ROOT,
   detectGlobalPlugin,
   skeleton,
+  slice,
   audit,
   readGuard,
   IGNORED_DIRS: skeleton.IGNORED_DIRS,
@@ -55,6 +57,11 @@ module.exports = {
   formatDirectoryMap: skeleton.formatDirectoryMap,
   generateRepoMap: skeleton.generateRepoMap,
   generateSkeleton: skeleton.generateSkeleton,
+  parseSliceTarget: skeleton.parseSliceTarget,
+  buildQualifiedItems: skeleton.buildQualifiedItems,
+  locateSymbol: skeleton.locateSymbol,
+  sliceSymbol: skeleton.sliceSymbol,
+  sliceSymbolFromText: skeleton.sliceSymbolFromText,
   estimateTokens: audit.estimateTokens,
   listSessions: audit.listSessions,
   analyzeSession: audit.analyzeSession,

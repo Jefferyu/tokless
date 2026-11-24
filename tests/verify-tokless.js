@@ -452,10 +452,23 @@ assert.strictEqual(rootPkg.generateFileSkeleton, skelMod.generateFileSkeleton);
 assert.strictEqual(rootPkg.scanDirectorySkeleton, skelMod.scanDirectorySkeleton);
 assert.strictEqual(rootPkg.generateRepoMap, skelMod.generateRepoMap);
 assert.strictEqual(rootPkg.formatDirectoryMap, skelMod.formatDirectoryMap);
+assert.strictEqual(rootPkg.sliceSymbol, skelMod.sliceSymbol);
+assert.strictEqual(rootPkg.locateSymbol, skelMod.locateSymbol);
+assert.strictEqual(typeof rootPkg.sliceSymbol, 'function');
+assert.strictEqual(typeof rootPkg.locateSymbol, 'function');
+assert.strictEqual(typeof skelMod.sliceSymbol, 'function');
 assert.strictEqual(typeof skelMod.generateSkeleton, 'function');
 assert.strictEqual(typeof skelMod.formatDirectorySkeleton, 'function');
 assert.strictEqual(typeof skelMod.generateRepoMap, 'function');
 assert.strictEqual(typeof skelMod.formatDirectoryMap, 'function');
+
+const slicedAlpha = rootPkg.sliceSymbol(${JSON.stringify(bigJs)}, 'exportedAlpha');
+assert.strictEqual(slicedAlpha.mode, 'slice');
+assert.strictEqual(slicedAlpha.found, true);
+assert.strictEqual(slicedAlpha.matchCount, 1);
+assert.strictEqual(slicedAlpha.matches[0].startLine, 15);
+assert.strictEqual(slicedAlpha.matches[0].endLine, 15);
+assert(slicedAlpha.matches[0].content.includes('function exportedAlpha(x) { return x + 1; }'));
 
 const fileSkel = skelMod.generateFileSkeleton(${JSON.stringify(bigJs)}, { includeHeader: true });
 assert.strictEqual(fileSkel.totalLines, 860);

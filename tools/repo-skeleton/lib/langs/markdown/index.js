@@ -1,7 +1,7 @@
 'use strict';
 
 const ID = 'markdown';
-const EXTENSIONS = ['.md', '.mdx'];
+const EXTENSIONS = ['.md', '.mdx', '.markdown'];
 
 function parse(lines, ext = '.md', options = {}) {
   if (ext && typeof ext === 'object') {
