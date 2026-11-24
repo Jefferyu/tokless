@@ -5,10 +5,6 @@ const os = require('os');
 const path = require('path');
 const { estimateTokens } = require('./analyzer');
 
-const ALWAYS_ON_LINE_LIMIT = 100;
-const SKILL_LINE_LIMIT = 120;
-const ALWAYS_ON_BYTE_ADVISORY = 4000;
-const SKILL_BYTE_ADVISORY = 8000;
 const CONFIG_DIR_NAMES = ['.agents', '.agent', '_agents', '_agent'];
 
 function parseFrontmatterTrigger(content) {
@@ -231,14 +227,34 @@ function auditMcpAndTools(rootDir, options = {}) {
     }
   }
 
-  // 3. Workspace MCP configs (.mcp.json, .agents/mcp_config.json, .agent/mcp_config.json, plugin root mcp_config.json)
-  const workspaceMcpCandidates = [
-    { p: path.join(rootDir, '.mcp.json'), label: '.mcp.json' },
-    { p: path.join(rootDir, '.agents', 'mcp_config.json'), label: '.agents/mcp_config.json' },
-    { p: path.join(rootDir, '.agent', 'mcp_config.json'), label: '.agent/mcp_config.json' }
-  ];
+  // 3. Workspace MCP configs (.mcp.json, .agents/.agent/_agents/_agent mcp_config.json & workspace plugins, plugin root)
+  const workspaceMcpCandidates = [{ p: path.join(rootDir, '.mcp.json'), label: '.mcp.json' }];
+  const agentDirs = [];
+  for (const cfgName of CONFIG_DIR_NAMES) {
+    const cfgDir = path.join(rootDir, cfgName);
+    if (!fs.existsSync(cfgDir) || !fs.statSync(cfgDir).isDirectory()) continue;
+    workspaceMcpCandidates.push({
+      p: path.join(cfgDir, 'mcp_config.json'),
+      label: `${cfgName}/mcp_config.json`,
+    });
+    agentDirs.push(path.join(cfgDir, 'agents'));
+
+    const wsPluginsDir = path.join(cfgDir, 'plugins');
+    if (fs.existsSync(wsPluginsDir) && fs.statSync(wsPluginsDir).isDirectory()) {
+      for (const pEntry of fs.readdirSync(wsPluginsDir, { withFileTypes: true })) {
+        if (!pEntry.isDirectory()) continue;
+        const pRoot = path.join(wsPluginsDir, pEntry.name);
+        workspaceMcpCandidates.push({
+          p: path.join(pRoot, 'mcp_config.json'),
+          label: `${cfgName}/plugins/${pEntry.name}/mcp_config.json`,
+        });
+        agentDirs.push(path.join(pRoot, 'agents'));
+      }
+    }
+  }
   if (fs.existsSync(path.join(rootDir, 'plugin.json'))) {
     workspaceMcpCandidates.push({ p: path.join(rootDir, 'mcp_config.json'), label: 'mcp_config.json' });
+    agentDirs.push(path.join(rootDir, 'agents'));
   }
   for (const item of workspaceMcpCandidates) {
     collectMcpServersFromFile(item.p, 'workspace', item.label, mcpServers);
@@ -249,14 +265,7 @@ function auditMcpAndTools(rootDir, options = {}) {
   const defaultToolAndMcpPerStep = DEFAULT_BUILTIN_TOOLS_EST_TOKENS + activeMcpEstTokensPerStep;
   const est30StepSnowballTokens = defaultToolAndMcpPerStep * 30;
 
-  // 4. Scan project agent definitions (.agents/agents/*.md, .agent/agents/*.md, and plugin agents/*.md)
-  const agentDirs = [
-    path.join(rootDir, '.agents', 'agents'),
-    path.join(rootDir, '.agent', 'agents')
-  ];
-  if (fs.existsSync(path.join(rootDir, 'plugin.json'))) {
-    agentDirs.push(path.join(rootDir, 'agents'));
-  }
+  // 4. Scan project agent definitions (.agents/.agent/_agents/_agent/agents/*.md and plugin agents/*.md)
 
   const agents = [];
   const seenAgentPaths = new Set();
@@ -366,57 +375,17 @@ function inspectDocFile(filePath, rootDir, category, loadMode) {
   }
 
   const isAlwaysOn = effectiveLoadMode === 'Always-On';
-  const lineLimit = isAlwaysOn ? ALWAYS_ON_LINE_LIMIT : SKILL_LINE_LIMIT;
-  const byteAdvisory = isAlwaysOn ? ALWAYS_ON_BYTE_ADVISORY : SKILL_BYTE_ADVISORY;
-
-  const exceedsLineLimit = lines > lineLimit;
-  const highDensity = bytes > byteAdvisory;
-
-  const suggestions = [];
-  if (exceedsLineLimit) {
-    if (isAlwaysOn) {
-      suggestions.push(
-        `行数超标 (${lines} 行 > ${lineLimit} 行上限)：将命令模板、操作步骤与长示例下沉到 .agents/skills/*/SKILL.md（改为按需加载），常驻规则仅保留硬性边界与目录分工，压至 80 行以内。`
-      );
-    } else {
-      suggestions.push(
-        `行数超标 (${lines} 行 > ${lineLimit} 行上限)：将长篇参考表、模板代码拆分到同级 references/ 或 scripts/ 目录，SKILL.md 主体只保留触发条件与核心步骤（控制在 100 行以内）。`
-      );
-    }
-  }
-  if (highDensity) {
-    if (isAlwaysOn) {
-      suggestions.push(
-        `高密度体积偏大 (${bytes} 字节 / 约 ${estTokens} Token，每轮对话必扣)：建议删减长段落背景描述与内联示例，精简为短句清单，将常驻成本压到 2,000 字节 (~600 Token) 以内。`
-      );
-    } else {
-      suggestions.push(
-        `单次触发体积偏大 (${bytes} 字节 / 约 ${estTokens} Token)：建议精简冗长散文描述，将大段规范/示例外置到 references/*.md 按需读取。`
-      );
-    }
-  }
-
-  let status = 'OK';
-  if (exceedsLineLimit) {
-    status = 'BLOAT';
-  } else if (highDensity) {
-    status = 'DENSE';
-  }
 
   return {
     relativePath: relPath,
     absolutePath: filePath,
     category: effectiveCategory,
     loadMode: effectiveLoadMode,
-    lineLimit,
     lines,
     chars,
     bytes,
     estTokens,
-    exceedsLineLimit,
-    highDensity,
-    status,
-    suggestions
+    est30StepTokens: isAlwaysOn ? estTokens * 30 : null
   };
 }
 
@@ -508,30 +477,24 @@ function auditProject(dirPath, options = {}) {
     estTokens: arr.reduce((s, f) => s + f.estTokens, 0)
   });
 
-  const flaggedFiles = files.filter(f => f.exceedsLineLimit || f.highDensity);
   const mcpAndToolTax = auditMcpAndTools(rootDir, options);
+  const alwaysOnSummary = sum(alwaysOnFiles);
 
   return {
     projectDir: rootDir,
     projectName: path.basename(rootDir),
-    thresholds: {
-      alwaysOnLineLimit: ALWAYS_ON_LINE_LIMIT,
-      skillLineLimit: SKILL_LINE_LIMIT,
-      alwaysOnByteAdvisory: ALWAYS_ON_BYTE_ADVISORY,
-      skillByteAdvisory: SKILL_BYTE_ADVISORY
-    },
     summary: {
       totalFiles: files.length,
-      alwaysOn: sum(alwaysOnFiles),
+      alwaysOn: {
+        ...alwaysOnSummary,
+        est30StepTokens: alwaysOnSummary.estTokens * 30
+      },
       progressiveDisclosure: sum(skillFiles),
-      lineViolations: files.filter(f => f.exceedsLineLimit).length,
-      densityWarnings: files.filter(f => !f.exceedsLineLimit && f.highDensity).length,
       enabledMcpCount: mcpAndToolTax.enabledMcpCount,
       defaultToolAndMcpPerStepTokens: mcpAndToolTax.defaultSessionEstTokensPerStep,
       agentRoleCount: mcpAndToolTax.agents.length
     },
     files,
-    flaggedFiles,
     mcpAndToolTax
   };
 }

@@ -256,9 +256,11 @@ public:
             class FakeClass { void fake_fn() {} };
         )delim";
         int million = 1'000'000;
+        unsigned long long magic_arr[] = { 0xDEAD'BEEF'CAFEULL, 0b1010'0101'1111ULL };
         char ch = u8'a';
         (void)raw;
         (void)million;
+        (void)magic_arr;
         (void)ch;
     }
 
@@ -283,7 +285,7 @@ public:
     ]);
     const ctorDef = res.items[4];
     assert.equal(ctorDef.startLine, 8);
-    assert.equal(ctorDef.endLine, 20);
+    assert.equal(ctorDef.endLine, 22);
     assert.equal(res.items.some((x) => x.name === 'FakeClass' || x.name === 'fake_fn'), false);
   });
 });

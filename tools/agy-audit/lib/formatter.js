@@ -375,20 +375,19 @@ function formatCompareMarkdown(cmp) {
 }
 
 function formatProjectMarkdown(report) {
-  const { projectDir, projectName, thresholds, summary, files, flaggedFiles, mcpAndToolTax } = report;
+  const { projectDir, projectName, summary, files, mcpAndToolTax } = report;
   const lines = [];
 
-  lines.push(`## 🩺 项目规则、Skill 与 MCP 底座体检: ${projectName}`);
+  lines.push(`## 🩺 项目规则、Skill 与 MCP 底座账单透视: ${projectName}`);
   lines.push(`- **检查目录**: \`${projectDir}\``);
-  lines.push(`- **文档诊断阈值**: 常驻规则 (\`AGENTS.md\` / \`GEMINI.md\` / \`rules/*.md\`) > ${thresholds.alwaysOnLineLimit} 行告警；按需技能 (\`SKILL.md\`) > ${thresholds.skillLineLimit} 行告警；单文件高密度体积 > ${fmtBytes(thresholds.alwaysOnByteAdvisory)} (常驻) / > ${fmtBytes(thresholds.skillByteAdvisory)} (技能) 提示精简。`);
   lines.push('');
 
   lines.push(`### 📊 文档负载总览`);
   lines.push('');
-  lines.push(`| 加载模式 | 文件数 | 总行数 | 总字节 | 估算 Token 成本 | 说明 |`);
-  lines.push(`| :--- | :--- | :--- | :--- | :--- | :--- |`);
-  lines.push(`| **Always-On (每轮常驻)** | ${summary.alwaysOn.count} | ${fmtNum(summary.alwaysOn.lines)} | ${fmtBytes(summary.alwaysOn.bytes)} | **${fmtNum(summary.alwaysOn.estTokens)}** / 轮 | 每轮对话无条件注入上下文 |`);
-  lines.push(`| **Progressive Disclosure (按需)** | ${summary.progressiveDisclosure.count} | ${fmtNum(summary.progressiveDisclosure.lines)} | ${fmtBytes(summary.progressiveDisclosure.bytes)} | **${fmtNum(summary.progressiveDisclosure.estTokens)}** (全触发) | 平时仅加载 \`description\`，命中时读正文 |`);
+  lines.push(`| 加载模式 | 文件数 | 总行数 | 总字节 | 单轮/单次估算 Token | 30 步常驻滚雪球 | 说明 |`);
+  lines.push(`| :--- | :--- | :--- | :--- | :--- | :--- | :--- |`);
+  lines.push(`| **Always-On (每轮常驻)** | ${summary.alwaysOn.count} | ${fmtNum(summary.alwaysOn.lines)} | ${fmtBytes(summary.alwaysOn.bytes)} | **~${fmtNum(summary.alwaysOn.estTokens)}** / 轮 | ~${fmtNum(summary.alwaysOn.estTokens * 30)} | 每轮对话无条件注入上下文 |`);
+  lines.push(`| **Progressive Disclosure (按需)** | ${summary.progressiveDisclosure.count} | ${fmtNum(summary.progressiveDisclosure.lines)} | ${fmtBytes(summary.progressiveDisclosure.bytes)} | **~${fmtNum(summary.progressiveDisclosure.estTokens)}** (全触发) | *(按需加载)* | 平时仅注入 \`description\`，命中时读正文 |`);
   lines.push('');
 
   if (files.length === 0) {
@@ -397,13 +396,11 @@ function formatProjectMarkdown(report) {
   } else {
     lines.push(`### 📁 规则与技能文件明细`);
     lines.push('');
-    lines.push(`| 文件路径 | 类别 | 加载模式 | 行数 | 字节数 | 估算 Token | 状态 |`);
+    lines.push(`| 文件路径 | 类别 | 加载模式 | 行数 | 字节数 | 单次估算 Token | 30 步常驻滚雪球 |`);
     lines.push(`| :--- | :--- | :--- | :--- | :--- | :--- | :--- |`);
     for (const f of files) {
-      let badge = '✅ 正常';
-      if (f.status === 'BLOAT') badge = `🔴 超标 (>${f.lineLimit}行)`;
-      else if (f.status === 'DENSE') badge = `🟡 高密度偏胖`;
-      lines.push(`| \`${f.relativePath}\` | ${f.category} | ${f.loadMode} | ${f.lines} | ${fmtBytes(f.bytes)} | ${fmtNum(f.estTokens)} | ${badge} |`);
+      const snowball = f.loadMode === 'Always-On' ? `~${fmtNum(f.estTokens * 30)}` : '*(按需触发)*';
+      lines.push(`| \`${f.relativePath}\` | ${f.category} | ${f.loadMode} | ${f.lines} | ${fmtBytes(f.bytes)} | ~${fmtNum(f.estTokens)} | ${snowball} |`);
     }
     lines.push('');
   }
@@ -456,25 +453,15 @@ function formatProjectMarkdown(report) {
     }
   }
 
-  lines.push(`### ✂️ 降维瘦身与净身建议`);
-  lines.push('');
-  const hasDocFlags = flaggedFiles.length > 0;
   const mcpTips = (mcpAndToolTax && mcpAndToolTax.suggestions) || [];
-
-  if (!hasDocFlags && mcpTips.length === 0) {
-    lines.push(`✅ 所有常驻规则、Skill 与角色工具底座均处于精简状态，无需额外瘦身。`);
-  } else {
-    for (const f of flaggedFiles) {
-      lines.push(`- **\`${f.relativePath}\`** (${f.lines} 行 · ${fmtBytes(f.bytes)} · 约 ${fmtNum(f.estTokens)} Token · ${f.loadMode}):`);
-      for (const s of f.suggestions) {
-        lines.push(`  - ${s}`);
-      }
-    }
+  if (mcpTips.length > 0) {
+    lines.push(`### 💡 工具底座净身参考`);
+    lines.push('');
     for (const tip of mcpTips) {
-      lines.push(`- **MCP / 工具底座净身**: ${tip}`);
+      lines.push(`- ${tip}`);
     }
+    lines.push('');
   }
-  lines.push('');
 
   return lines.join('\n');
 }

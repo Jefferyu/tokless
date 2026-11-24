@@ -36,7 +36,9 @@ function isDigitSeparatorQuote(raw, pos) {
   if (pos <= 0 || pos + 1 >= raw.length) return false;
   if (!/[0-9a-fA-F]/.test(raw[pos + 1])) return false;
   const prefixSlice = raw.slice(0, pos);
-  return /(?:^|[^A-Za-z0-9_])(?:0[xX][0-9a-fA-F]+|0[bB][01]+|[0-9]+)$/.test(prefixSlice);
+  return /(?:^|[^A-Za-z0-9_])(?:0[xX][0-9a-fA-F]+(?:'[0-9a-fA-F]+)*|0[bB][01]+(?:'[01]+)*|[0-9]+(?:'[0-9]+)*)$/.test(
+    prefixSlice
+  );
 }
 
 /**

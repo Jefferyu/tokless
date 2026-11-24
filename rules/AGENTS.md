@@ -13,8 +13,8 @@
 - 纯代码编写或只读代码审查会话优先启用 `inheritMcp: false` 及最小 `tools` 清单（如内置净身角色 `tokless-coder`、`tokless-reviewer`），剥离用不上的浏览器/外部 MCP Schema 每步固定底座税。
 
 ## 3. 本地账单透视、Prefix Cache 保护与控水位减轮次 (`tokless audit` / `agy-audit`)
-- **0 Token 账单与底座税体检**（支持 `session <ID>` 查缓存断层/模型切换归因与 Top 5 膨胀步、`compare <前ID> <后ID>`、`project <项目目录>` 查规则肥胖度与 MCP 空载税）：
-  - 全局 CLI（推荐）: `tokless audit <session|compare|project> <参数>`
-  - macOS / Linux: `node "$HOME/.gemini/config/plugins/agy-tokless/tools/agy-audit/cli.js" <session|compare|project> <参数>`
-  - Windows (PowerShell): `node "$env:USERPROFILE\.gemini\config\plugins\agy-tokless\tools\agy-audit\cli.js" <session|compare|project> <参数>`
+- **0 Token 账单与底座税体检**（支持 `list` 列最近会话、`session <ID|latest>` 查缓存断层/模型切换归因与 Top 5 膨胀步、`compare <前ID> <后ID>`、`project <项目目录>` 查常驻规则与 MCP 底座账单）：
+  - 全局 CLI（推荐）: `tokless audit <list|session|compare|project> <参数>`
+  - macOS / Linux: `node "$HOME/.gemini/config/plugins/agy-tokless/tools/agy-audit/cli.js" <list|session|compare|project> <参数>`
+  - Windows (PowerShell): `node "$env:USERPROFILE\.gemini\config\plugins\agy-tokless\tools\agy-audit\cli.js" <list|session|compare|project> <参数>`
 - **严控终端输出与保护 Prefix Cache**：`run_command` 必须主动限制长日志输出规模；对话中途保持顶部规则稳定只追加，控制上下文水位与对话轮次以降低累计 `Cache Read` 滚雪球并避免触发历史自动压缩（三代模型常见约 256K，四代模型实测跑上 440K 未触发、推测约 512K）。

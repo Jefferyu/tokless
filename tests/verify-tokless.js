@@ -8,6 +8,7 @@ const path = require('path');
 const { execFileSync, execSync, spawnSync } = require('child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
+const EXPECTED_VERSION = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')).version;
 
 function walkFiles(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -205,10 +206,23 @@ function testAgyAuditCacheCliffsAndMcpTax(tmpDir) {
     { encoding: 'utf8' }
   );
   const selfAudit = JSON.parse(selfAuditRaw);
-  assert.strictEqual(selfAudit.summary.lineViolations, 0, 'tokless docs must have 0 line limit violations');
-  assert.strictEqual(selfAudit.summary.densityWarnings, 0, 'tokless docs must have 0 byte density warnings');
+  assert(selfAudit.summary.alwaysOn.count >= 2, 'Both root AGENTS.md and rules/AGENTS.md must be discovered');
+  assert(typeof selfAudit.summary.alwaysOn.est30StepTokens === 'number', '30-step snowball token estimate must be exposed');
   assert.strictEqual(selfAudit.summary.progressiveDisclosure.count, 2, 'Both code-skeleton and token-audit SKILL.md must exist');
   assert.strictEqual(selfAudit.mcpAndToolTax.agents.length, 2, 'Exactly 2 official lightweight agent templates (coder + reviewer) must be discovered');
+
+  const rootPkgJson = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+  const rootPluginJson = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'plugin.json'), 'utf8'));
+  assert.strictEqual(
+    Object.keys(rootPkgJson.dependencies || {}).length,
+    0,
+    'package.json must maintain zero runtime dependencies'
+  );
+  assert.strictEqual(
+    rootPkgJson.version,
+    rootPluginJson.version,
+    `Version mismatch: package.json (${rootPkgJson.version}) !== plugin.json (${rootPluginJson.version}). Run: npm run bump -- <version>`
+  );
 
   console.log('  [PASS] 2. agy-audit session Prefix Cache cliffs, Gen3/Gen4 compaction context & MCP/tool base tax');
 }
@@ -426,7 +440,7 @@ const guardMod = require('tokless/read-guard');
 const pkgJson = require('tokless/package.json');
 
 assert.strictEqual(pkgJson.name, 'tokless');
-assert.strictEqual(pkgJson.version, '0.5.1');
+assert.strictEqual(pkgJson.version, ${JSON.stringify(EXPECTED_VERSION)});
 assert.strictEqual(typeof rootPkg.scanFileLightweight, 'function');
 assert(pkgJson.bin && pkgJson.bin.tokless && pkgJson.bin['repo-skeleton'] && pkgJson.bin['agy-audit']);
 assert.deepStrictEqual(Object.keys(pkgJson.bin).sort(), ['agy-audit', 'repo-skeleton', 'tokless']);
@@ -549,9 +563,18 @@ function testUnifiedCliAndCrossAgentTargets(tmpDir) {
   assert.strictEqual(shouldForceCopy('/opt/local/repo/tokless', true), true);
 
   const verOut = execFileSync(process.execPath, [cliPath, '--version'], { encoding: 'utf8' }).trim();
-  assert.strictEqual(verOut, '0.5.1');
+  assert.strictEqual(verOut, EXPECTED_VERSION);
   const pluginManifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'plugin.json'), 'utf8'));
-  assert.strictEqual(pluginManifest.version, '0.5.1');
+  assert.strictEqual(pluginManifest.version, EXPECTED_VERSION);
+
+  const { bumpVersion } = require(path.join(REPO_ROOT, 'scripts', 'bump-version.js'));
+  const bumpSandbox = path.join(tmpDir, 'bump-sandbox');
+  fs.mkdirSync(bumpSandbox, { recursive: true });
+  fs.writeFileSync(path.join(bumpSandbox, 'package.json'), JSON.stringify({ name: 'tokless', version: '0.1.0' }), 'utf8');
+  fs.writeFileSync(path.join(bumpSandbox, 'plugin.json'), JSON.stringify({ name: 'agy-tokless', version: '0.1.0' }), 'utf8');
+  bumpVersion('v1.2.3', { rootDir: bumpSandbox });
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(bumpSandbox, 'package.json'), 'utf8')).version, '1.2.3');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(bumpSandbox, 'plugin.json'), 'utf8')).version, '1.2.3');
 
   const helpOut = execFileSync(process.execPath, [cliPath, '--help'], { encoding: 'utf8' });
   assert(helpOut.includes('tokless install') && helpOut.includes('--with-guard') && helpOut.includes('tokless skeleton') && helpOut.includes('tokless audit'));

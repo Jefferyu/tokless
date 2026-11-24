@@ -199,6 +199,7 @@ test('auditProject supports .agent/_agents/_agent dirs and model_decision trigge
     fs.writeFileSync(path.join(projDir, 'AGENTS.md'), '# Root\n');
     fs.mkdirSync(path.join(projDir, '.agent', 'rules'), { recursive: true });
     fs.mkdirSync(path.join(projDir, '_agents', 'skills', 'demo'), { recursive: true });
+    fs.mkdirSync(path.join(projDir, '_agents', 'agents'), { recursive: true });
 
     fs.writeFileSync(
       path.join(projDir, '.agent', 'rules', 'on-demand.md'),
@@ -208,10 +209,21 @@ test('auditProject supports .agent/_agents/_agent dirs and model_decision trigge
       path.join(projDir, '_agents', 'skills', 'demo', 'SKILL.md'),
       '---\nname: demo\ndescription: demo\n---\n# Demo\n'
     );
+    fs.writeFileSync(
+      path.join(projDir, '_agents', 'mcp_config.json'),
+      JSON.stringify({ mcpServers: { demoMcp: { command: 'node' } } })
+    );
+    fs.writeFileSync(
+      path.join(projDir, '_agents', 'agents', 'slim.md'),
+      '---\nname: slim\ninheritMcp: false\ntools: [read_file]\n---\nSlim worker.\n'
+    );
 
     const report = auditProject(projDir, { homeDir: projDir });
     assert.equal(report.summary.alwaysOn.count, 1);
     assert.equal(report.summary.progressiveDisclosure.count, 2);
+    assert.equal(report.mcpAndToolTax.enabledMcpCount, 1);
+    assert.equal(report.mcpAndToolTax.agents.length, 1);
+    assert.equal(report.mcpAndToolTax.agents[0].name, 'slim');
     const onDemand = report.files.find((f) => f.relativePath === '.agent/rules/on-demand.md');
     assert.equal(onDemand.loadMode, 'Progressive Disclosure');
   } finally {
