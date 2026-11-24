@@ -120,16 +120,16 @@ $$\text{累计 Cache Read} \approx \text{平均上下文水位} \times \text{模
 
 ### 1. `tokless skeleton`（兼容 `repo-skeleton`）+ `rules/AGENTS.md` 省流规范 —【100% 所有 AI 编程工具通用】
 
-无需预建索引数据库，纯 Node.js 标准库毫秒级提取 `.js/.jsx/.ts/.tsx/.vue/.svelte/.py/.go/.rs/.java/.kt/.c/.cpp/.cs/.md` 等文件的类名、函数签名、接口、单测套件/用例（`describe`/`test`/`it`）与精确 **`[L起-L止]` 行号范围**（按需惰性加载对应语言解析器），配合 [`rules/AGENTS.md`](./rules/AGENTS.md) 中的两步精准读取规范，探索期单文件省流 **85%~97%**：
+无需预建索引数据库，纯 Node.js 标准库毫秒级提取 `.js/.jsx/.ts/.tsx/.vue/.svelte/.py/.go/.rs/.java/.kt/.c/.h/.cpp/.hpp/.cs/.md` 等文件的类名、函数签名/原型、`typedef`、结构体、宏区间、单测套件/用例（`describe`/`test`/`it`）与精确 **`[L起-L止]` 行号范围**（按需惰性加载对应语言解析器；针对 C/C++ 支持 `extern "C"` 穿透、`#if/#else/#endif` 括号平衡、`#if 0` 隔离与宏块折叠，自动忽略 `Objects`/`Listings`/`.clangd`/`cmake-build-*`），配合 [`rules/AGENTS.md`](./rules/AGENTS.md) 中的两步精准读取规范，探索期单文件省流 **85%~97%**：
 
 ```bash
 # 快速生成全仓目录行数与字数鸟瞰地图（不展开函数签名）
 npx tokless skeleton . --map
 
-# 扫描整个源码目录（自动排除 node_modules/.git/dist/target 等），一步生成全局行号地图
-npx tokless skeleton ./src --depth 3
+# 扫描整个源码目录（自动排除构建目录，支持 --exclude 追加忽略目录），一步生成全局行号地图
+npx tokless skeleton ./src --depth 3 --exclude third_party,vendor
 
-# 提取单个大文件的函数签名与 [L起-L止] 行号（支持 --json 输出结构化数据）
+# 提取单个大文件或 C/C++ 头文件的签名与 [L起-L止] 行号（支持 --json 输出结构化数据）
 npx tokless skeleton ./src/App.tsx
 ```
 
@@ -149,11 +149,14 @@ npx tokless skeleton ./src/App.tsx
 # [跨端通用] 诊断项目的 AGENTS.md / SKILL.md 肥胖度与全局/工作区 MCP 空载底座税
 npx tokless audit project <项目目录路径>
 
-# [Antigravity 专用] 解剖单个会话（支持短 ID 前缀）：查 Top 5 烧钱步骤、Prefix Cache 断层与压缩节点
-npx tokless audit session <会话ID前缀>
+# [Antigravity 专用] 列出最近会话（支持 --source cli|app|ide|all）
+npx tokless audit list --source cli
+
+# [Antigravity 专用] 解剖单个会话（支持 latest、latest~1、短 ID 前缀或日志路径）：查 Top 5 烧钱步骤、Prefix Cache 断层/双模型切换归因与压缩节点
+npx tokless audit session latest
 
 # [Antigravity 专用] 优化前后两个会话的 A/B 量化账单对比
-npx tokless audit compare <优化前ID> <优化后ID>
+npx tokless audit compare latest~1 latest
 ```
 
 ---
