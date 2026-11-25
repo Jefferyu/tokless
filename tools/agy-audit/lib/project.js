@@ -316,7 +316,7 @@ function auditMcpAndTools(rootDir, options = {}) {
 
   if (enabledMcpServers.length > 0 && slimAgents.length === 0) {
     suggestions.push(
-      `检测到 ${enabledMcpServers.length} 个已启用 MCP Server（每步额外注入约 ${activeMcpEstTokensPerStep.toLocaleString('en-US')} Token，30 步滚雪球约 ${(activeMcpEstTokensPerStep * 30).toLocaleString('en-US')} Token），且当前项目尚未配置净身角色。建议在 .agents/agents/ 下定义 inheritMcp: false 与最小 tools 清单的专属角色（或直接运行 agy --agent tokless-coder / tokless-reviewer）卸除无关 MCP 底座税。`
+      `检测到 ${enabledMcpServers.length} 个已启用 MCP Server（按全量 Eager Schema 上界估算每步额外注入约 ${activeMcpEstTokensPerStep.toLocaleString('en-US')} Token，30 步滚雪球约 ${(activeMcpEstTokensPerStep * 30).toLocaleString('en-US')} Token），且当前项目尚未配置净身角色。建议在 .agents/agents/ 下定义 inheritMcp: false 与最小 tools 清单的专属角色（或直接运行 agy --agent tokless-coder / tokless-reviewer）卸除无关 MCP 底座税。`
     );
   } else if (agents.length === 0) {
     suggestions.push(
@@ -327,7 +327,7 @@ function auditMcpAndTools(rootDir, options = {}) {
   if (enabledMcpServers.length > 0 && mcpInheritingAgents.length > 0) {
     const names = mcpInheritingAgents.map(a => a.name).join(', ');
     suggestions.push(
-      `角色 [${names}] 当前开启或默认继承了 MCP (inheritMcp: true)，每步多付约 ${activeMcpEstTokensPerStep.toLocaleString('en-US')} Token；若该角色无需调用浏览器或外部 MCP 工具，建议显式加上 inheritMcp: false。`
+      `角色 [${names}] 当前开启或默认继承了 MCP (inheritMcp: true)，按全量 Eager Schema 上界估算每步多付约 ${activeMcpEstTokensPerStep.toLocaleString('en-US')} Token；若该角色无需调用浏览器或外部 MCP 工具，建议显式加上 inheritMcp: false。`
     );
   }
 

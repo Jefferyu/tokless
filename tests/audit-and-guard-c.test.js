@@ -351,8 +351,9 @@ test('agy-audit estimates Pure-Lazy MCP tax with shared overhead, isolates unuse
     );
     const dbAContent = [
       `Conversation ID: ${convA}`,
-      'X'.repeat(140000),
-      bridgeDecls,
+      'Call a lazy-loaded MCP tool.',
+      'X'.repeat(2200000),
+      'Lists the available resources from an MCP server. Retrieves a specified resource.',
       `${mcpHeader}\n# gemini-web-mcp\nLazy:\ngemini_ask\ngemini_sessions\ngemini_health\n</mcp_servers>`,
       'Y'.repeat(2000),
       `Conversation ID: ${convA}`

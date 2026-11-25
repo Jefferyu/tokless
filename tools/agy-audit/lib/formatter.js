@@ -1,5 +1,7 @@
 'use strict';
 
+const MILD_LAZY_UNUSED_MAX_STEP_TOKENS = 500;
+
 function fmtNum(n) {
   return (n ?? 0).toLocaleString('en-US');
 }
@@ -84,7 +86,7 @@ function formatSessionMarkdown(report) {
           return `\`${s.name}\` (${s.callCount > 0 ? `调用 ${s.callCount} 次` : `0 调用空载${modeTag}`})`;
         })
         .join(', ');
-      const isMildLazyUnused = mcpAudit.unusedLazyOnly && (mcpAudit.unusedEstTokensPerStep ?? 0) <= 500;
+      const isMildLazyUnused = mcpAudit.unusedLazyOnly && (mcpAudit.unusedEstTokensPerStep ?? 0) <= MILD_LAZY_UNUSED_MAX_STEP_TOKENS;
       const icon = mcpAudit.unusedServerNames.length > 0 ? (isMildLazyUnused ? 'ℹ️' : '⚠️') : '🔌';
       mcpBadge = `${icon} 挂载 **${mcpAudit.mountedCount}** 个: ${srvList}`;
     } else if (!mcpAudit.detectedFromSessionDb) {
@@ -159,7 +161,7 @@ function formatSessionMarkdown(report) {
         );
       }
       lines.push('');
-      lines.push(`- **止血建议**: ① 常见云端隐式缓存保活窗约 5 分钟（显式长缓存约 1 小时）：长驻 Swarm 协调会话或高水位旧会话若沉睡超 5~50 分钟后再唤醒，极易触发 0% 复用全量重算，建议按里程碑重开干净会话交接；② 严禁在对话中途动态篡改顶部常驻规则、系统提示词或增删 MCP 工具（破坏前缀只追加性）；③ 若处于 Orchestrator / 双模型规划执行模式，跨模型切换必然触发 KV Cache 重算，建议集中规划后一次移交执行以减少高频往返切换。`);
+      lines.push(`- **止血建议**: ① 常见云端隐式缓存保活窗约 5 分钟起（按容量弹性驱逐，显式长缓存约 1 小时）：低水位短停顿原地续跑即可重新热身缓存；仅当高水位旧会话（如 >150K）频繁长间隔挂起或长闲置超时后，按里程碑重开干净会话带精简结论交接才更省钱；② 严禁在对话中途动态篡改顶部常驻规则、系统提示词或增删 MCP 工具（破坏前缀只追加性）；③ 若处于 Orchestrator / 双模型规划执行模式，跨模型切换必然触发 KV Cache 重算，建议集中规划后一次移交执行以减少高频往返切换。`);
     }
     if (modelBreakdown.length > 1) {
       lines.push('');
@@ -227,7 +229,7 @@ function formatSessionMarkdown(report) {
       if (mcpAudit.unusedServerNames.length > 0) {
         const unusedStepTok = mcpAudit.unusedEstTokensPerStep ?? mcpAudit.estTokensPerStep;
         const unusedSessionTok = mcpAudit.unusedEstSessionTaxTokens ?? mcpAudit.estSessionTaxTokens;
-        const isMildLazyUnused = mcpAudit.unusedLazyOnly && unusedStepTok <= 500;
+        const isMildLazyUnused = mcpAudit.unusedLazyOnly && unusedStepTok <= MILD_LAZY_UNUSED_MAX_STEP_TOKENS;
         if (isMildLazyUnused) {
           const sharedPart = (mcpAudit.unusedSharedOverheadPerStep ?? 0) > 0
             ? `（工具名目录 ~${fmtNum(mcpAudit.unusedServersEstTokensPerStep)} + MCP 共享桥接底座 ~${fmtNum(mcpAudit.unusedSharedOverheadPerStep)} Token/步）`

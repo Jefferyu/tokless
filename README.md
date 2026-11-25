@@ -103,7 +103,7 @@ npx tokless audit compare latest~1 latest                       # [Antigravity] 
 
 `tokless` 基于 Node.js 标准库从零独立实现，特此感谢以下社区贡献者与开源灵感项目：
 
-- **社区贡献者**：感谢 [@PXY000](https://github.com/PXY000)（跨平台 PowerShell 技能模板、钩子 Node 绝对路径解析、路径安全防护与单测）、[@Mr-PolarBear](https://github.com/Mr-PolarBear)（Java 嵌套类/泛型返回类型/匿名字段过滤与 JS 顶层 IIFE 骨架提取修复）、[@Jefferyu](https://github.com/Jefferyu)（模块化 C/C++ 嵌入式语法骨架解析器、Antigravity 多源 CLI 审计与双模型切换缓存断层归因）。
+- **社区贡献者**：感谢 [@PXY000](https://github.com/PXY000)（跨平台 PowerShell 技能模板、钩子 Node 绝对路径解析、路径安全防护与单测）、[@Mr-PolarBear](https://github.com/Mr-PolarBear)（Java 嵌套类/泛型返回类型/匿名字段过滤与 JS 顶层 IIFE 骨架提取修复）、[@Jefferyu](https://github.com/Jefferyu)（模块化 C/C++ 嵌入式语法骨架解析器、Antigravity 多源 CLI 审计、Pure-Lazy MCP 底座校准与双模型/短窗口缓存断层归因）。
 - **灵感致敬**：[HoangP8/tokless](https://github.com/HoangP8/tokless)、[ILoveMyJay/repocontext](https://github.com/ILoveMyJay/repocontext)、[pdavis68/RepoMapper](https://github.com/pdavis68/RepoMapper) 与 [ooples/token-optimizer-mcp](https://github.com/ooples/token-optimizer-mcp)。
 
 如果 `tokless` 切实帮你省下了周额度，欢迎点一颗 **Star** 支持，或关注作者技术手记公众号 **【织歌AI笔记】** 交流实战经验。

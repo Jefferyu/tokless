@@ -101,7 +101,7 @@ npx tokless audit compare latest~1 latest                       # [Antigravity] 
 
 Built from scratch on the Node.js standard library. Special thanks to:
 
-- **Contributors**: [@PXY000](https://github.com/PXY000) (cross-platform PowerShell skill templates, absolute Node resolution in hooks, path traversal guards & tests), [@Mr-PolarBear](https://github.com/Mr-PolarBear) (Java nested classes, dotted/generic return types, anonymous field filtering & JS top-level IIFE fixes), and [@Jefferyu](https://github.com/Jefferyu) (modular C/C++ embedded skeleton parser, multi-source Antigravity CLI audit & dual-model cache cliff attribution).
+- **Contributors**: [@PXY000](https://github.com/PXY000) (cross-platform PowerShell skill templates, absolute Node resolution in hooks, path traversal guards & tests), [@Mr-PolarBear](https://github.com/Mr-PolarBear) (Java nested classes, dotted/generic return types, anonymous field filtering & JS top-level IIFE fixes), and [@Jefferyu](https://github.com/Jefferyu) (modular C/C++ embedded skeleton parser, multi-source Antigravity CLI audit, Pure-Lazy MCP tax calibration & dual-model/short-window cache cliff attribution).
 - **Open-Source Inspiration**: [HoangP8/tokless](https://github.com/HoangP8/tokless), [ILoveMyJay/repocontext](https://github.com/ILoveMyJay/repocontext), [pdavis68/RepoMapper](https://github.com/pdavis68/RepoMapper), and [ooples/token-optimizer-mcp](https://github.com/ooples/token-optimizer-mcp).
 
 ## License

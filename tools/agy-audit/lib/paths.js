@@ -611,13 +611,17 @@ function findBestMcpBlockInText(text, anchorIdx = -1) {
   return bestMatch;
 }
 
-function countMcpBridgeToolDecls(text) {
+function detectMcpBridgeToolMask(text) {
   if (!text) return 0;
-  let count = 0;
-  if (text.includes('Call a lazy-loaded MCP tool')) count++;
-  if (text.includes('Lists the available resources from an MCP server')) count++;
-  if (text.includes('Retrieves a specified resource')) count++;
-  return count;
+  let mask = 0;
+  if (text.includes('Call a lazy-loaded MCP tool')) mask |= 1;
+  if (text.includes('Lists the available resources from an MCP server')) mask |= 2;
+  if (text.includes('Retrieves a specified resource')) mask |= 4;
+  return mask;
+}
+
+function countBits3(mask) {
+  return (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1);
 }
 
 function readChunkUtf8(fd, offset, length) {
@@ -658,14 +662,14 @@ function inspectSessionMountedMcp(conversationId, transcriptFilePath, options = 
       let sawMarker = false;
       let bestMatch = null;
       let fallbackMatch = null;
-      let bridgeToolDeclCount = 0;
+      let bridgeToolMask = 0;
 
       while (offset < stat.size) {
         const len = Math.min(chunkSize, stat.size - offset);
         const text = readChunkUtf8(fd, offset, len);
 
-        if (bridgeToolDeclCount < 3) {
-          bridgeToolDeclCount = Math.max(bridgeToolDeclCount, countMcpBridgeToolDecls(text));
+        if (bridgeToolMask !== 7) {
+          bridgeToolMask |= detectMcpBridgeToolMask(text);
         }
         if (!fallbackMatch) {
           const direct = findBestMcpBlockInText(text, -1);
@@ -682,8 +686,8 @@ function inspectSessionMountedMcp(conversationId, transcriptFilePath, options = 
           const winEnd = Math.min(stat.size, absPos + windowRadius);
           const foundWindow = readChunkUtf8(fd, winStart, winEnd - winStart);
           const relMarkerIdx = foundWindow.indexOf(marker);
-          if (bridgeToolDeclCount < 3) {
-            bridgeToolDeclCount = Math.max(bridgeToolDeclCount, countMcpBridgeToolDecls(foundWindow));
+          if (bridgeToolMask !== 7) {
+            bridgeToolMask |= detectMcpBridgeToolMask(foundWindow);
           }
           const nearMatch = findBestMcpBlockInText(foundWindow, relMarkerIdx);
           if (nearMatch) {
@@ -693,7 +697,7 @@ function inspectSessionMountedMcp(conversationId, transcriptFilePath, options = 
           searchFrom = idx + marker.length;
         }
 
-        if (bestMatch && bridgeToolDeclCount >= 3) break;
+        if (bestMatch && bridgeToolMask === 7) break;
         if (offset + len >= stat.size) break;
         offset += chunkSize - overlap;
       }
@@ -712,7 +716,7 @@ function inspectSessionMountedMcp(conversationId, transcriptFilePath, options = 
         servers,
         mcpBlockChars: resolvedMatch ? resolvedMatch.length : 0,
         mcpPreambleChars: resolvedMatch ? computeMcpPreambleChars(resolvedMatch) : 0,
-        bridgeToolDeclCount,
+        bridgeToolDeclCount: countBits3(bridgeToolMask),
       };
     } catch {
       if (fd !== null) {
