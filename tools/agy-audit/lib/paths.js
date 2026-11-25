@@ -584,6 +584,42 @@ function parseMountedMcpBlock(mcpBlockText) {
   return Array.from(servers.values());
 }
 
+function computeMcpPreambleChars(mcpBlockText) {
+  if (!mcpBlockText || typeof mcpBlockText !== 'string') return 0;
+  const withoutFence = mcpBlockText.replace(/```[\s\S]*?```/g, (m) => ' '.repeat(m.length));
+  const m = withoutFence.match(/^#\s+[A-Za-z0-9._:@/-]+$/m);
+  if (!m || typeof m.index !== 'number') return mcpBlockText.length;
+  return m.index;
+}
+
+function findBestMcpBlockInText(text, anchorIdx = -1) {
+  if (!text) return null;
+  const re = /<mcp_servers>\r?\nEach MCP server has a directory[\s\S]*?<\/mcp_servers>/g;
+  let bestMatch = null;
+  let bestDist = Infinity;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const prevChars = text.slice(Math.max(0, m.index - 40), m.index);
+    if (prevChars.includes('\\n') || prevChars.includes('\\"')) continue;
+    if (anchorIdx < 0) return m[0];
+    const dist = Math.abs(m.index - anchorIdx);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestMatch = m[0];
+    }
+  }
+  return bestMatch;
+}
+
+function countMcpBridgeToolDecls(text) {
+  if (!text) return 0;
+  let count = 0;
+  if (text.includes('Call a lazy-loaded MCP tool')) count++;
+  if (text.includes('Lists the available resources from an MCP server')) count++;
+  if (text.includes('Retrieves a specified resource')) count++;
+  return count;
+}
+
 function readChunkUtf8(fd, offset, length) {
   const buf = Buffer.alloc(length);
   const bytesRead = fs.readSync(fd, buf, 0, length, offset);
@@ -617,21 +653,47 @@ function inspectSessionMountedMcp(conversationId, transcriptFilePath, options = 
       const marker = `Conversation ID: ${conversationId}`;
       const chunkSize = 2 * 1024 * 1024;
       const overlap = 65536;
+      const windowRadius = 65536;
       let offset = 0;
-      let foundWindow = null;
-      let relMarkerIdx = -1;
+      let sawMarker = false;
+      let bestMatch = null;
+      let fallbackMatch = null;
+      let bridgeToolDeclCount = 0;
 
       while (offset < stat.size) {
         const len = Math.min(chunkSize, stat.size - offset);
         const text = readChunkUtf8(fd, offset, len);
-        const idx = text.indexOf(marker);
-        if (idx !== -1) {
-          const winStart = Math.max(0, offset + idx - 49152);
-          const winEnd = Math.min(stat.size, offset + idx + 49152);
-          foundWindow = readChunkUtf8(fd, winStart, winEnd - winStart);
-          relMarkerIdx = foundWindow.indexOf(marker);
-          break;
+
+        if (bridgeToolDeclCount < 3) {
+          bridgeToolDeclCount = Math.max(bridgeToolDeclCount, countMcpBridgeToolDecls(text));
         }
+        if (!fallbackMatch) {
+          const direct = findBestMcpBlockInText(text, -1);
+          if (direct) fallbackMatch = direct;
+        }
+
+        let searchFrom = 0;
+        while (!bestMatch) {
+          const idx = text.indexOf(marker, searchFrom);
+          if (idx === -1) break;
+          sawMarker = true;
+          const absPos = offset + idx;
+          const winStart = Math.max(0, absPos - windowRadius);
+          const winEnd = Math.min(stat.size, absPos + windowRadius);
+          const foundWindow = readChunkUtf8(fd, winStart, winEnd - winStart);
+          const relMarkerIdx = foundWindow.indexOf(marker);
+          if (bridgeToolDeclCount < 3) {
+            bridgeToolDeclCount = Math.max(bridgeToolDeclCount, countMcpBridgeToolDecls(foundWindow));
+          }
+          const nearMatch = findBestMcpBlockInText(foundWindow, relMarkerIdx);
+          if (nearMatch) {
+            bestMatch = nearMatch;
+            break;
+          }
+          searchFrom = idx + marker.length;
+        }
+
+        if (bestMatch && bridgeToolDeclCount >= 3) break;
         if (offset + len >= stat.size) break;
         offset += chunkSize - overlap;
       }
@@ -639,28 +701,18 @@ function inspectSessionMountedMcp(conversationId, transcriptFilePath, options = 
       fs.closeSync(fd);
       fd = null;
 
-      if (!foundWindow || relMarkerIdx === -1) {
+      const resolvedMatch = bestMatch || fallbackMatch;
+      if (!sawMarker && !resolvedMatch) {
         continue;
       }
 
-      const re = /<mcp_servers>\r?\nEach MCP server has a directory[\s\S]*?<\/mcp_servers>/g;
-      let bestMatch = null;
-      let bestDist = Infinity;
-      let m;
-      while ((m = re.exec(foundWindow)) !== null) {
-        const prevChars = foundWindow.slice(Math.max(0, m.index - 40), m.index);
-        if (prevChars.includes('\\n') || prevChars.includes('\\"')) continue;
-        const dist = Math.abs(m.index - relMarkerIdx);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestMatch = m[0];
-        }
-      }
-
-      const servers = bestMatch ? parseMountedMcpBlock(bestMatch) : [];
+      const servers = resolvedMatch ? parseMountedMcpBlock(resolvedMatch) : [];
       return {
         detectedFromSessionDb: true,
         servers,
+        mcpBlockChars: resolvedMatch ? resolvedMatch.length : 0,
+        mcpPreambleChars: resolvedMatch ? computeMcpPreambleChars(resolvedMatch) : 0,
+        bridgeToolDeclCount,
       };
     } catch {
       if (fd !== null) {
@@ -674,6 +726,9 @@ function inspectSessionMountedMcp(conversationId, transcriptFilePath, options = 
   return {
     detectedFromSessionDb: false,
     servers: [],
+    mcpBlockChars: 0,
+    mcpPreambleChars: 0,
+    bridgeToolDeclCount: 0,
   };
 }
 
