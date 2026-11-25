@@ -51,6 +51,12 @@ function compareSessions(idBefore, idAfter, options = {}) {
     cacheCliffCount: calcDelta(before.stats.cacheCliffCount, after.stats.cacheCliffCount),
     modelSwitchCount: calcDelta(before.stats.modelSwitchCount, after.stats.modelSwitchCount),
     modelSwitchCacheCliffCount: calcDelta(before.stats.modelSwitchCacheCliffCount, after.stats.modelSwitchCacheCliffCount),
+    shortIdleCacheCliffCount: calcDelta(before.stats.shortIdleCacheCliffCount, after.stats.shortIdleCacheCliffCount),
+    shortIdleCacheRebilledTokens: calcDelta(before.stats.shortIdleCacheRebilledTokens, after.stats.shortIdleCacheRebilledTokens),
+    mcpUnusedEstSessionTaxTokens: calcDelta(
+      before.mcpAudit ? before.mcpAudit.unusedEstSessionTaxTokens : 0,
+      after.mcpAudit ? after.mcpAudit.unusedEstSessionTaxTokens : 0
+    ),
     peakContextTokens: calcDelta(before.stats.peakContextTokens, after.stats.peakContextTokens),
     peakContextPct256k: calcDelta(before.stats.peakContextPct256k, after.stats.peakContextPct256k),
     compactionCount: calcDelta(before.stats.compactionCount, after.stats.compactionCount)

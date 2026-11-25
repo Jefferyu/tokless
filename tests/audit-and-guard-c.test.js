@@ -313,3 +313,210 @@ test('agy-audit attributes Orchestrator dual-model switch cache cliffs and separ
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('agy-audit estimates Pure-Lazy MCP tax with shared overhead, isolates unused tax, and finds distant DB blocks', () => {
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tokless-lazy-mcp-'));
+  try {
+    const convA = 'aaaa1111-1111-2222-3333-000000000001';
+    const convB = 'bbbb2222-1111-2222-3333-000000000002';
+    const convC = 'cccc3333-1111-2222-3333-000000000003';
+    const convDir = path.join(fakeHome, '.gemini', 'antigravity-cli', 'conversations');
+    fs.mkdirSync(convDir, { recursive: true });
+
+    const mcpHeader = [
+      '<mcp_servers>',
+      'Each MCP server has a directory `<appDataDir>\\mcp\\<serverName>` containing tool schemas (`<toolName>.json`) and optionally an `instructions.md` file with best practices.',
+      'The following MCP servers and their available tools are listed below, following this format:',
+      '```',
+      '# <serverName>',
+      'Eager:',
+      '<toolName>',
+      'Lazy:',
+      '<toolName>',
+      '```'
+    ].join('\n');
+    const bridgeDecls = 'Call a lazy-loaded MCP tool. Lists the available resources from an MCP server. Retrieves a specified resource.';
+
+    // Case A: Pure-Lazy single unused MCP, with first Conversation ID >120KB away from <mcp_servers>
+    writeTranscript(
+      fakeHome,
+      'antigravity-cli',
+      convA,
+      [
+        { step_index: 0, type: 'USER_INPUT', created_at: '2026-11-24T10:00:00Z', content: 'Pure lazy MCP test' },
+        { step_index: 1, type: 'PLANNER_RESPONSE', created_at: '2026-11-24T10:00:05Z', input_tokens: 12000, cache_read_tokens: 0, output_tokens: 200 },
+        { step_index: 2, type: 'PLANNER_RESPONSE', created_at: '2026-11-24T10:00:15Z', input_tokens: 500, cache_read_tokens: 12000, output_tokens: 200 }
+      ],
+      1700000300
+    );
+    const dbAContent = [
+      `Conversation ID: ${convA}`,
+      'X'.repeat(140000),
+      bridgeDecls,
+      `${mcpHeader}\n# gemini-web-mcp\nLazy:\ngemini_ask\ngemini_sessions\ngemini_health\n</mcp_servers>`,
+      'Y'.repeat(2000),
+      `Conversation ID: ${convA}`
+    ].join('\n');
+    fs.writeFileSync(path.join(convDir, `${convA}.db`), dbAContent, 'utf8');
+
+    // Case B: 1 invoked Eager MCP + 1 unused Pure-Lazy MCP (shared overhead must NOT be charged to unused)
+    writeTranscript(
+      fakeHome,
+      'antigravity-cli',
+      convB,
+      [
+        { step_index: 0, type: 'USER_INPUT', created_at: '2026-11-24T11:00:00Z', content: 'Mixed invoked and unused MCP' },
+        {
+          step_index: 1,
+          type: 'PLANNER_RESPONSE',
+          created_at: '2026-11-24T11:00:05Z',
+          input_tokens: 15000,
+          cache_read_tokens: 0,
+          output_tokens: 200,
+          tool_calls: [{ name: 'mcp_chrome-devtools_list_pages', args: {} }]
+        },
+        { step_index: 2, type: 'GENERIC', created_at: '2026-11-24T11:00:06Z', content: 'Pages: []' }
+      ],
+      1700000400
+    );
+    const dbBContent = [
+      bridgeDecls,
+      `${mcpHeader}\n# chrome-devtools\nEager:\nlist_pages\nclick\n# gemini-web-mcp\nLazy:\ngemini_ask\ngemini_sessions\ngemini_health\n</mcp_servers>`,
+      `Conversation ID: ${convB}`
+    ].join('\n');
+    fs.writeFileSync(path.join(convDir, `${convB}.db`), dbBContent, 'utf8');
+
+    // Case C: MCP schema file read counts as invoked (not unused)
+    writeTranscript(
+      fakeHome,
+      'antigravity-cli',
+      convC,
+      [
+        { step_index: 0, type: 'USER_INPUT', created_at: '2026-11-24T12:00:00Z', content: 'Schema read test' },
+        {
+          step_index: 1,
+          type: 'PLANNER_RESPONSE',
+          created_at: '2026-11-24T12:00:05Z',
+          input_tokens: 12000,
+          cache_read_tokens: 0,
+          output_tokens: 100,
+          tool_calls: [{ name: 'read_file', args: { Path: '/home/u/.gemini/antigravity-cli/mcp/gemini-web-mcp/gemini_ask.json', StartLine: 1, EndLine: 50 } }]
+        },
+        { step_index: 2, type: 'GENERIC', created_at: '2026-11-24T12:00:06Z', content: '{}' }
+      ],
+      1700000500
+    );
+    const dbCContent = [
+      bridgeDecls,
+      `${mcpHeader}\n# gemini-web-mcp\nLazy:\ngemini_ask\ngemini_sessions\ngemini_health\n</mcp_servers>`,
+      `Conversation ID: ${convC}`
+    ].join('\n');
+    fs.writeFileSync(path.join(convDir, `${convC}.db`), dbCContent, 'utf8');
+
+    const env = { ...process.env, USERPROFILE: fakeHome, HOME: fakeHome };
+
+    const resA = spawnSync(process.execPath, [AUDIT_CLI, 'session', convA, '--source', 'cli', '--json'], { encoding: 'utf8', env });
+    assert.equal(resA.status, 0, resA.stderr);
+    const repA = JSON.parse(resA.stdout);
+    assert.equal(repA.mcpAudit.mountedCount, 1);
+    assert.equal(repA.mcpAudit.servers[0].loadingMode, 'lazy');
+    assert.equal(repA.mcpAudit.servers[0].estimateBasis, 'prompt_index');
+    assert.equal(repA.mcpAudit.servers[0].estTokensPerStep, 24);
+    assert.ok(repA.mcpAudit.sharedOverheadEstTokensPerStep >= 300, 'should account for preamble + 3 bridge tools');
+    assert.equal(repA.mcpAudit.unusedServersEstTokensPerStep, 24);
+    assert.equal(repA.mcpAudit.unusedSharedOverheadPerStep, repA.mcpAudit.sharedOverheadEstTokensPerStep);
+    assert.equal(repA.mcpAudit.unusedEstTokensPerStep, 24 + repA.mcpAudit.sharedOverheadEstTokensPerStep);
+    assert.equal(repA.mcpAudit.unusedLazyOnly, true);
+
+    const mdA = spawnSync(process.execPath, [AUDIT_CLI, 'session', convA, '--source', 'cli'], { encoding: 'utf8', env }).stdout;
+    assert.match(mdA, /轻量 Lazy 挂载提示/);
+    assert.doesNotMatch(mdA, /空载继承告警/);
+    assert.match(mdA, /0 \/ 3 \(Lazy\)/);
+
+    const resB = spawnSync(process.execPath, [AUDIT_CLI, 'session', convB, '--source', 'cli', '--json'], { encoding: 'utf8', env });
+    assert.equal(resB.status, 0, resB.stderr);
+    const repB = JSON.parse(resB.stdout);
+    assert.equal(repB.mcpAudit.mountedCount, 2);
+    assert.deepEqual(repB.mcpAudit.unusedServerNames, ['gemini-web-mcp']);
+    assert.equal(repB.mcpAudit.unusedSharedOverheadPerStep, 0, 'shared overhead must not be charged when another MCP is invoked');
+    assert.equal(repB.mcpAudit.unusedEstTokensPerStep, 24);
+    assert.equal(repB.mcpAudit.unusedEstSessionTaxTokens, 24);
+
+    const resC = spawnSync(process.execPath, [AUDIT_CLI, 'session', convC, '--source', 'cli', '--json'], { encoding: 'utf8', env });
+    assert.equal(resC.status, 0, resC.stderr);
+    const repC = JSON.parse(resC.stdout);
+    assert.deepEqual(repC.mcpAudit.unusedServerNames, []);
+    assert.equal(repC.mcpAudit.servers[0].callCount, 1);
+    assert.equal(repC.mcpAudit.unusedEstSessionTaxTokens, 0);
+  } finally {
+    fs.rmSync(fakeHome, { recursive: true, force: true });
+  }
+});
+
+test('agy-audit classifies 300s-2999s low-retention cache cliffs as short_idle_cache_evicted with boundary checks', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokless-short-ttl-'));
+  try {
+    const transcriptPath = path.join(tmpDir, 'transcript_full.jsonl');
+    const baseMs = Date.parse('2026-11-24T10:00:00Z');
+    const at = (sec) => new Date(baseMs + sec * 1000).toISOString();
+    let t = 0;
+    const steps = [
+      { step_index: 0, type: 'USER_INPUT', created_at: at(t), content: 'Short TTL boundary test' },
+      // Warmup
+      { step_index: 1, type: 'PLANNER_RESPONSE', created_at: at((t += 5)), model: 'm-a', input_tokens: 20000, cache_read_tokens: 0, output_tokens: 100 },
+      { step_index: 2, type: 'PLANNER_RESPONSE', created_at: at((t += 10)), model: 'm-a', input_tokens: 2000, cache_read_tokens: 20000, output_tokens: 100 },
+      // 1) 299s (<300s) -> prefix_mutated_or_evicted
+      { step_index: 3, type: 'PLANNER_RESPONSE', created_at: at((t += 299)), model: 'm-a', input_tokens: 23000, cache_read_tokens: 0, output_tokens: 100 },
+      // 2) 300s (=300s, 0% retention) -> short_idle_cache_evicted
+      { step_index: 4, type: 'PLANNER_RESPONSE', created_at: at((t += 300)), model: 'm-a', input_tokens: 24000, cache_read_tokens: 0, output_tokens: 100 },
+      // 3) 420s but 25% retention (>15%) -> prefix_mutated_or_evicted with interval hint
+      { step_index: 5, type: 'PLANNER_RESPONSE', created_at: at((t += 420)), model: 'm-a', input_tokens: 19000, cache_read_tokens: 6000, output_tokens: 100 },
+      // 4) 420s, same known model + USER_SETTINGS_CHANGE + 0% -> short_idle_cache_evicted (non-model setting does not mask 7m TTL)
+      { step_index: 6, type: 'USER_SETTINGS_CHANGE', created_at: at(t + 10), content: 'theme changed' },
+      { step_index: 7, type: 'PLANNER_RESPONSE', created_at: at((t += 420)), model: 'm-a', input_tokens: 26000, cache_read_tokens: 0, output_tokens: 100 },
+      // 5) 420s + model switch -> model_switch (with interval hint)
+      { step_index: 8, type: 'PLANNER_RESPONSE', created_at: at((t += 420)), model: 'm-b', input_tokens: 27000, cache_read_tokens: 0, output_tokens: 100 },
+      // 6) 2999s (<3000s, 0% retention) -> short_idle_cache_evicted
+      { step_index: 9, type: 'PLANNER_RESPONSE', created_at: at((t += 2999)), model: 'm-b', input_tokens: 28000, cache_read_tokens: 0, output_tokens: 100 },
+      // 7) 3000s (=3000s, 0% retention) -> idle_ttl_expired
+      { step_index: 10, type: 'PLANNER_RESPONSE', created_at: at((t += 3000)), model: 'm-b', input_tokens: 29000, cache_read_tokens: 0, output_tokens: 100 }
+    ];
+    fs.writeFileSync(transcriptPath, steps.map((s) => JSON.stringify(s)).join('\n') + '\n', 'utf8');
+
+    const res = spawnSync(process.execPath, [AUDIT_CLI, 'session', transcriptPath, '--json'], { encoding: 'utf8' });
+    assert.equal(res.status, 0, res.stderr);
+    const report = JSON.parse(res.stdout);
+
+    assert.deepEqual(
+      report.cacheCliffs.map((c) => c.reasonCode),
+      [
+        'prefix_mutated_or_evicted',
+        'short_idle_cache_evicted',
+        'prefix_mutated_or_evicted',
+        'short_idle_cache_evicted',
+        'model_switch',
+        'short_idle_cache_evicted',
+        'idle_ttl_expired'
+      ]
+    );
+    assert.equal(report.stats.shortIdleCacheCliffCount, 3);
+    assert.equal(report.cacheCliffBreakdown.short_idle_cache_evicted.count, 3);
+    assert.ok(report.stats.shortIdleCacheRebilledTokens > 0);
+    assert.match(report.cacheCliffs[1].reason, /疑似短窗口缓存过期/);
+    assert.match(report.cacheCliffs[2].reason, /7\.0 分钟/);
+    assert.match(report.cacheCliffs[3].reason, /非模型设置变更/);
+    assert.match(report.cacheCliffs[4].reason, /7\.0 分钟/);
+
+    const md = spawnSync(process.execPath, [AUDIT_CLI, 'session', transcriptPath], { encoding: 'utf8' }).stdout;
+    assert.match(md, /短窗口缓存过期\(5~50m\)/);
+
+    const cmpRes = spawnSync(process.execPath, [AUDIT_CLI, 'compare', transcriptPath, transcriptPath, '--json'], { encoding: 'utf8' });
+    assert.equal(cmpRes.status, 0, cmpRes.stderr);
+    const cmp = JSON.parse(cmpRes.stdout);
+    assert.equal(cmp.metrics.shortIdleCacheCliffCount.before, 3);
+    assert.equal(cmp.metrics.shortIdleCacheRebilledTokens.before, report.stats.shortIdleCacheRebilledTokens);
+    assert.equal(cmp.metrics.mcpUnusedEstSessionTaxTokens.before, 0);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

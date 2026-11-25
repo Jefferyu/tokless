@@ -79,9 +79,14 @@ function formatSessionMarkdown(report) {
     let mcpBadge = `✅ **0** 个外部 MCP（已净身 / 无全局继承）`;
     if (mcpAudit.mountedCount > 0) {
       const srvList = mcpAudit.servers
-        .map(s => `\`${s.name}\` (${s.callCount > 0 ? `调用 ${s.callCount} 次` : '0 调用空载'})`)
+        .map(s => {
+          const modeTag = s.loadingMode === 'lazy' ? ', Lazy' : '';
+          return `\`${s.name}\` (${s.callCount > 0 ? `调用 ${s.callCount} 次` : `0 调用空载${modeTag}`})`;
+        })
         .join(', ');
-      mcpBadge = `${mcpAudit.unusedServerNames.length > 0 ? '⚠️' : '🔌'} 挂载 **${mcpAudit.mountedCount}** 个: ${srvList}`;
+      const isMildLazyUnused = mcpAudit.unusedLazyOnly && (mcpAudit.unusedEstTokensPerStep ?? 0) <= 500;
+      const icon = mcpAudit.unusedServerNames.length > 0 ? (isMildLazyUnused ? 'ℹ️' : '⚠️') : '🔌';
+      mcpBadge = `${icon} 挂载 **${mcpAudit.mountedCount}** 个: ${srvList}`;
     } else if (!mcpAudit.detectedFromSessionDb) {
       mcpBadge = `**0** 次外部 MCP 调用 *(纯日志模式)*`;
     }
@@ -128,7 +133,8 @@ function formatSessionMarkdown(report) {
       if (cacheCliffBreakdown) {
         const breakdownOrder = [
           ['model_switch', '模型切换'],
-          ['idle_ttl_expired', '闲置超时'],
+          ['idle_ttl_expired', '长闲置超时(≥50m)'],
+          ['short_idle_cache_evicted', '短窗口缓存过期(5~50m)'],
           ['settings_or_model_switch', '设置/模型变更'],
           ['prefix_mutated_or_evicted', '其他前缀变动']
         ];
@@ -153,7 +159,7 @@ function formatSessionMarkdown(report) {
         );
       }
       lines.push('');
-      lines.push(`- **止血建议**: ① 若闲置超过 1 小时缓存已过期，重开干净新会话带上精简结论往往比在巨型旧上下文里硬唤醒更省钱；② 严禁在对话中途动态篡改顶部常驻规则、系统提示词或增删 MCP 工具（破坏前缀只追加性）；③ 若处于 Orchestrator / 双模型规划执行模式，跨模型切换必然触发 KV Cache 重算，建议集中规划后一次移交执行以减少高频往返切换。`);
+      lines.push(`- **止血建议**: ① 常见云端隐式缓存保活窗约 5 分钟（显式长缓存约 1 小时）：长驻 Swarm 协调会话或高水位旧会话若沉睡超 5~50 分钟后再唤醒，极易触发 0% 复用全量重算，建议按里程碑重开干净会话交接；② 严禁在对话中途动态篡改顶部常驻规则、系统提示词或增删 MCP 工具（破坏前缀只追加性）；③ 若处于 Orchestrator / 双模型规划执行模式，跨模型切换必然触发 KV Cache 重算，建议集中规划后一次移交执行以减少高频往返切换。`);
     }
     if (modelBreakdown.length > 1) {
       lines.push('');
@@ -219,18 +225,34 @@ function formatSessionMarkdown(report) {
     } else {
       lines.push(`- **实际挂载外部 MCP 服务 (${mcpAudit.mountedCount} 个)**: ${mcpAudit.servers.map(s => `\`${s.name}\``).join(', ')}（工具前缀: ${mcpAudit.prefixes.map(p => `\`${p}\``).join(', ')}）`);
       if (mcpAudit.unusedServerNames.length > 0) {
-        lines.push(`- **空载继承告警**: ⚠️ 检出 **[${mcpAudit.unusedServerNames.join(', ')}]** 全程 **0 次调用**却随每步常驻挂载，累计产生约 **~${fmtNum(mcpAudit.estSessionTaxTokens)}** Token 空载底座税（建议非浏览器会话设 \`inheritMcp: false\`）。`);
+        const unusedStepTok = mcpAudit.unusedEstTokensPerStep ?? mcpAudit.estTokensPerStep;
+        const unusedSessionTok = mcpAudit.unusedEstSessionTaxTokens ?? mcpAudit.estSessionTaxTokens;
+        const isMildLazyUnused = mcpAudit.unusedLazyOnly && unusedStepTok <= 500;
+        if (isMildLazyUnused) {
+          const sharedPart = (mcpAudit.unusedSharedOverheadPerStep ?? 0) > 0
+            ? `（工具名目录 ~${fmtNum(mcpAudit.unusedServersEstTokensPerStep)} + MCP 共享桥接底座 ~${fmtNum(mcpAudit.unusedSharedOverheadPerStep)} Token/步）`
+            : `（仅工具名目录 ~${fmtNum(unusedStepTok)} Token/步，共享底座已由其他已调用 MCP 分摊）`;
+          lines.push(`- **轻量 Lazy 挂载提示**: ℹ️ **[${mcpAudit.unusedServerNames.join(', ')}]** 为纯 Lazy 懒加载模式且全程 **0 次调用**，每步仅占约 **~${fmtNum(unusedStepTok)}** Token${sharedPart}，累计约 **~${fmtNum(unusedSessionTok)}** Token 吞吐量 *(多以 Cache Read 折扣计费，不含可选配套 Skill 描述；追求极限瘦身可设 \`inheritMcp: false\`)*。`);
+        } else {
+          lines.push(`- **空载继承告警**: ⚠️ 检出 **[${mcpAudit.unusedServerNames.join(', ')}]** 全程 **0 次调用**却随每步常驻挂载，单步约 **~${fmtNum(unusedStepTok)}** Token，累计产生约 **~${fmtNum(unusedSessionTok)}** Token 空载吞吐量 *(含 Cache Read 折扣计费；建议非浏览器会话设 \`inheritMcp: false\`)*。`);
+        }
       }
       lines.push('');
-      lines.push(`| MCP 服务名 | 工具前缀 | 工具规模 (Eager / Lazy) | 实际调用次数 | 估算单步底座税 |`);
+      lines.push(`| MCP 服务名 | 工具前缀 | 工具规模 (Eager / Lazy) | 实际调用次数 | 估算单步底座 |`);
       lines.push(`| :--- | :--- | :--- | :--- | :--- |`);
       for (const srv of mcpAudit.servers) {
+        const modeLabelMap = { lazy: 'Lazy', eager: 'Eager', mixed: 'Mixed', empty: 'Empty' };
+        const modeSuffix = modeLabelMap[srv.loadingMode] ? ` (${modeLabelMap[srv.loadingMode]})` : '';
         const scale = srv.eagerToolCount || srv.lazyToolCount
-          ? `${srv.eagerToolCount} / ${srv.lazyToolCount}`
-          : (srv.invokedTools.length > 0 ? `已调: ${srv.invokedTools.slice(0, 3).join(', ')}` : '-');
+          ? `${srv.eagerToolCount} / ${srv.lazyToolCount}${modeSuffix}`
+          : (srv.invokedTools.length > 0 ? `已调: ${srv.invokedTools.slice(0, 3).join(', ')}` : (modeSuffix ? `0 / 0${modeSuffix}` : '-'));
         lines.push(
           `| \`${srv.name}\` | \`${srv.prefix}\` | ${scale} | **${srv.callCount}** | ~${fmtNum(srv.estTokensPerStep)} |`
         );
+      }
+      if ((mcpAudit.sharedOverheadEstTokensPerStep ?? 0) > 0) {
+        lines.push('');
+        lines.push(`> *注：挂载任意外部 MCP 时，宿主会一次性附加约 ~${fmtNum(mcpAudit.sharedOverheadEstTokensPerStep)} Token/步 的共享基础设施开销（\`<mcp_servers>\` 格式说明 + \`call_mcp_tool\`/\`list_resources\`/\`read_resource\` 桥接声明）；当全部已挂载 MCP 均 0 调用时计入空载底座，否则由已调用服务分摊（不含配套 \`SKILL.md\` 摘要）。*`);
       }
     }
     lines.push('');
@@ -343,9 +365,22 @@ function formatCompareMarkdown(cmp) {
       ['累计 Cache Read Tokens (滚雪球)', fmtNum(metrics.totalCacheReadTokens.before), fmtNum(metrics.totalCacheReadTokens.after), fmtDelta(metrics.totalCacheReadTokens.delta), fmtPct(metrics.totalCacheReadTokens.savedPct)],
       ['Prefix Cache 命中率 (%)', `${metrics.cacheHitRatePct.before}%`, `${metrics.cacheHitRatePct.after}%`, fmtDelta(metrics.cacheHitRatePct.delta, '%'), '-'],
       ['Prefix Cache 断层次数', fmtNum(metrics.cacheCliffCount.before), fmtNum(metrics.cacheCliffCount.after), fmtDelta(metrics.cacheCliffCount.delta), fmtPct(metrics.cacheCliffCount.savedPct)],
-      ...(metrics.modelSwitchCacheCliffCount && (metrics.modelSwitchCacheCliffCount.before > 0 || metrics.modelSwitchCacheCliffCount.after > 0)
-        ? [['└─ 其中模型切换引起', fmtNum(metrics.modelSwitchCacheCliffCount.before), fmtNum(metrics.modelSwitchCacheCliffCount.after), fmtDelta(metrics.modelSwitchCacheCliffCount.delta), fmtPct(metrics.modelSwitchCacheCliffCount.savedPct)]]
-        : []),
+      ...(() => {
+        const subRows = [];
+        if (metrics.modelSwitchCacheCliffCount && (metrics.modelSwitchCacheCliffCount.before > 0 || metrics.modelSwitchCacheCliffCount.after > 0)) {
+          subRows.push(['其中模型切换引起', metrics.modelSwitchCacheCliffCount]);
+        }
+        if (metrics.shortIdleCacheCliffCount && (metrics.shortIdleCacheCliffCount.before > 0 || metrics.shortIdleCacheCliffCount.after > 0)) {
+          subRows.push(['其中短窗口缓存过期(5~50m)', metrics.shortIdleCacheCliffCount]);
+        }
+        return subRows.map(([label, m], idx) => [
+          `${idx < subRows.length - 1 ? '├─' : '└─'} ${label}`,
+          fmtNum(m.before),
+          fmtNum(m.after),
+          fmtDelta(m.delta),
+          fmtPct(m.savedPct)
+        ]);
+      })(),
       ['累计 Output Tokens', fmtNum(metrics.totalOutputTokens.before), fmtNum(metrics.totalOutputTokens.after), fmtDelta(metrics.totalOutputTokens.delta), fmtPct(metrics.totalOutputTokens.savedPct)],
       ['总 Token 吞吐 (`input+cache_read+output`)', fmtNum(metrics.totalThroughputTokens.before), fmtNum(metrics.totalThroughputTokens.after), fmtDelta(metrics.totalThroughputTokens.delta), fmtPct(metrics.totalThroughputTokens.savedPct)],
       [
@@ -432,6 +467,8 @@ function formatProjectMarkdown(report) {
           `| \`${escapePipe(s.name)}\` | \`${escapePipe(s.source)}\` | \`${s.transport}\` | ${stateLabel} | ~${fmtNum(s.estTokensPerStep)} Token |`
         );
       }
+      lines.push('');
+      lines.push(`> *注：静态配置按全量 Eager Schema 上界估算；若宿主（如 Antigravity CLI）按 Lazy 懒加载挂载，单服务仅占工具名目录 + 一次性 MCP 共享桥接底座（不含配套 Skill 描述），实际开销请以 \`session\` 审计为准。*`);
       lines.push('');
     }
 
